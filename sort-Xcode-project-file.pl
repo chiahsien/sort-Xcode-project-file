@@ -114,7 +114,7 @@ for my $projectFile (@ARGV) {
             }
             print $OUT sort sortFilesByFileName @files;
             print $OUT $endMarker;
-        } elsif ($line =~ /^(\s*)children = \(\s*$/) {
+        } elsif ($line =~ /^(\s*)(children|buildConfigurations) = \(\s*$/) {
             print $OUT $line;
             my $endMarker = $1 . ");";
             my @children;
