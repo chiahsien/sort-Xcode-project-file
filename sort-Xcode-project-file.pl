@@ -132,6 +132,14 @@ for my $projectFile (@ARGV) {
                 print $OUT sort sortChildrenByFileName @children;
             }
             print $OUT $endMarker;
+        } elsif ($line =~ /^(.*)Begin PBXFrameworksBuildPhase section(.*)$/) {
+            print $OUT $line;
+            while (my $ignoreLine = <IN>) {
+                print $OUT $ignoreLine;
+                if ($ignoreLine =~ /^(.*)End PBXFrameworksBuildPhase section(.*)$/) {
+                    last;
+                }
+            }
         } else {
             print $OUT $line;
         }
