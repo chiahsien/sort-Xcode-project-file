@@ -1,6 +1,7 @@
 #!/usr/bin/env perl
 
 # Copyright (C) 2007-2021 Apple Inc.  All rights reserved.
+# Copyright (C) 2021-2022 Nelson.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -26,7 +27,8 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 # THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# Script to sort "children" and "files" sections in Xcode project.pbxproj files
+# Script to case-sensitive sort "children", "files", "buildConfigurations"
+# and "targets" sections in Xcode project.pbxproj files
 
 use strict;
 use warnings;
@@ -101,6 +103,7 @@ for my $projectFile (@ARGV) {
     my @lastTwo = ();
     open(IN, "< $projectFile") || die "Could not open $projectFile: $!";
     while (my $line = <IN>) {
+        # Sort files section.
         if ($line =~ /^(\s*)files = \(\s*$/) {
             print $OUT $line;
             my $endMarker = $1 . ");";
@@ -114,7 +117,9 @@ for my $projectFile (@ARGV) {
             }
             print $OUT sort sortFilesByFileName @files;
             print $OUT $endMarker;
-        } elsif ($line =~ /^(\s*)(children|buildConfigurations|targets) = \(\s*$/) {
+        }
+        # Sort children, buildConfigurations, and targets sections.
+        elsif ($line =~ /^(\s*)(children|buildConfigurations|targets) = \(\s*$/) {
             print $OUT $line;
             my $endMarker = $1 . ");";
             my @children;
@@ -132,7 +137,9 @@ for my $projectFile (@ARGV) {
                 print $OUT sort sortChildrenByFileName @children;
             }
             print $OUT $endMarker;
-        } elsif ($line =~ /^(.*)Begin PBXFrameworksBuildPhase section(.*)$/) {
+        }
+        # Ignore whole PBXFrameworksBuildPhase section.
+        elsif ($line =~ /^(.*)Begin PBXFrameworksBuildPhase section(.*)$/) {
             print $OUT $line;
             while (my $ignoreLine = <IN>) {
                 print $OUT $ignoreLine;
@@ -140,7 +147,9 @@ for my $projectFile (@ARGV) {
                     last;
                 }
             }
-        } else {
+        }
+        # Ignore other lines.
+        else {
             print $OUT $line;
         }
 
@@ -171,6 +180,7 @@ sub sortChildrenByFileName($$)
         my $bNumber = $1 if $bFileName =~ /^UnifiedSource(\d+)/;
         return $aNumber <=> $bNumber if $aNumber != $bNumber;
     }
+    # Uncomment below line to have case-insensitive sorting.
     # return lc($aFileName) cmp lc($bFileName) if lc($aFileName) ne lc($bFileName);
     return $aFileName cmp $bFileName;
 }
@@ -185,6 +195,7 @@ sub sortFilesByFileName($$)
         my $bNumber = $1 if $bFileName =~ /^UnifiedSource(\d+)/;
         return $aNumber <=> $bNumber if $aNumber != $bNumber;
     }
+    # Uncomment below line to have case-insensitive sorting.
     # return lc($aFileName) cmp lc($bFileName) if lc($aFileName) ne lc($bFileName);
     return $aFileName cmp $bFileName;
 }
