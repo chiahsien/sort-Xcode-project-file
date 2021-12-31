@@ -6,10 +6,13 @@ This Perl script is a fork from [sort-Xcode-project-file](https://github.com/Web
 
 - Ignore `PBXFrameworksBuildPhase` section.
 - Sort `targets` list for project.
+- Sort `packageReferences` list for project.
 - Sort `buildConfigurations` list for each target.
 - Case-sensitive sorting.
 
 ## Usage
+
+**Please backup Xcode project file before using this script.**
 
 `perl sort-Xcode-project-file.pl <path-to-xcodeproj-file>`
 

@@ -27,8 +27,8 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 # THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# Script to case-sensitive sort "children", "files", "buildConfigurations"
-# and "targets" sections in Xcode project.pbxproj files
+# Script to case-sensitive sort "children", "files", "buildConfigurations",
+# "targets" and "packageReferences" sections in Xcode project.pbxproj files
 
 use strict;
 use warnings;
@@ -118,8 +118,8 @@ for my $projectFile (@ARGV) {
             print $OUT sort sortFilesByFileName @files;
             print $OUT $endMarker;
         }
-        # Sort children, buildConfigurations, and targets sections.
-        elsif ($line =~ /^(\s*)(children|buildConfigurations|targets) = \(\s*$/) {
+        # Sort children, buildConfigurations, targets, and packageReferences sections.
+        elsif ($line =~ /^(\s*)(children|buildConfigurations|targets|packageReferences) = \(\s*$/) {
             print $OUT $line;
             my $endMarker = $1 . ");";
             my @children;
