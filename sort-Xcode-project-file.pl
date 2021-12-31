@@ -171,7 +171,7 @@ sub sortChildrenByFileName($$)
         my $bNumber = $1 if $bFileName =~ /^UnifiedSource(\d+)/;
         return $aNumber <=> $bNumber if $aNumber != $bNumber;
     }
-    return lc($aFileName) cmp lc($bFileName) if lc($aFileName) ne lc($bFileName);
+    # return lc($aFileName) cmp lc($bFileName) if lc($aFileName) ne lc($bFileName);
     return $aFileName cmp $bFileName;
 }
 
@@ -185,6 +185,6 @@ sub sortFilesByFileName($$)
         my $bNumber = $1 if $bFileName =~ /^UnifiedSource(\d+)/;
         return $aNumber <=> $bNumber if $aNumber != $bNumber;
     }
-    return lc($aFileName) cmp lc($bFileName) if lc($aFileName) ne lc($bFileName);
+    # return lc($aFileName) cmp lc($bFileName) if lc($aFileName) ne lc($bFileName);
     return $aFileName cmp $bFileName;
 }
