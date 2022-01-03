@@ -5,8 +5,9 @@ This Perl script is a fork from [sort-Xcode-project-file](https://github.com/Web
 ## What's different
 
 - Bypass `PBXFrameworksBuildPhase` section because this order is important for some projects.
+- Sort top-level directories and files in `mainGroup`.
 - Sort `targets` list in project.
-- Sort `packageReferences` list in project.
+- Sort `packageProductDependencies` and `packageReferences` lists in project.
 - Sort `buildConfigurations` list in each target.
 - Case-sensitive sorting.
 
@@ -62,7 +63,9 @@ Put following line into `.gitattributes` file then commit it.
 ## To-Do
 
 - [ ] Sort file names numerically.
+
   `1, 2, 10, 11` instead of `1, 10, 11, 2`.
+
 - [ ] Command line option to bypass `PBXFrameworksBuildPhase` section or not.
 
 ## License

@@ -28,7 +28,8 @@
 # THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 # Script to case-sensitive sort "children", "files", "buildConfigurations",
-# "targets" and "packageReferences" sections in Xcode project.pbxproj files
+# "targets", "packageProductDependencies" and "packageReferences" sections
+# in Xcode project.pbxproj file.
 
 use strict;
 use warnings;
@@ -79,14 +80,6 @@ for my $projectFile (@ARGV) {
         next;
     }
 
-    # Grab the mainGroup for the project file.
-    my $mainGroup = "";
-    open(IN, "< $projectFile") || die "Could not open $projectFile: $!";
-    while (my $line = <IN>) {
-        $mainGroup = $2 if $line =~ m#^(\s*)mainGroup = ([0-9A-F]{24}( /\* .+ \*/)?);$#;
-    }
-    close(IN);
-
     my ($OUT, $tempFileName) = tempfile(
         basename($projectFile) . "-XXXXXXXX",
         DIR => dirname($projectFile),
@@ -100,7 +93,6 @@ for my $projectFile (@ARGV) {
         unlink($tempFileName);
     };
 
-    my @lastTwo = ();
     open(IN, "< $projectFile") || die "Could not open $projectFile: $!";
     while (my $line = <IN>) {
         # Sort files section.
@@ -118,8 +110,13 @@ for my $projectFile (@ARGV) {
             print $OUT sort sortFilesByFileName @files;
             print $OUT $endMarker;
         }
-        # Sort children, buildConfigurations, targets, and packageReferences sections.
-        elsif ($line =~ /^(\s*)(children|buildConfigurations|targets|packageReferences) = \(\s*$/) {
+        # Sort these sections:
+        # - children
+        # - buildConfigurations
+        # - targets
+        # - packageProductDependencies
+        # - packageReferences
+        elsif ($line =~ /^(\s*)(children|buildConfigurations|targets|packageProductDependencies|packageReferences) = \(\s*$/) {
             print $OUT $line;
             my $endMarker = $1 . ");";
             my @children;
@@ -130,12 +127,7 @@ for my $projectFile (@ARGV) {
                 }
                 push @children, $childLine;
             }
-            if ($lastTwo[0] =~ m#^\s+\Q$mainGroup\E = \{$#) {
-                # Don't sort mainGroup
-                print $OUT @children;
-            } else {
-                print $OUT sort sortChildrenByFileName @children;
-            }
+            print $OUT sort sortChildrenByFileName @children;
             print $OUT $endMarker;
         }
         # Ignore whole PBXFrameworksBuildPhase section.
@@ -152,9 +144,6 @@ for my $projectFile (@ARGV) {
         else {
             print $OUT $line;
         }
-
-        push @lastTwo, $line;
-        shift @lastTwo if scalar(@lastTwo) > 2;
     }
     close(IN);
     close($OUT);
