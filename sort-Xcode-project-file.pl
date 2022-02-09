@@ -29,7 +29,7 @@
 
 # Script to case-sensitive sort "children", "files", "buildConfigurations",
 # "targets", "packageProductDependencies" and "packageReferences" sections
-# in Xcode project.pbxproj file.
+# in Xcode project.pbxproj files.
 
 use strict;
 use warnings;
@@ -107,15 +107,13 @@ for my $projectFile (@ARGV) {
                 }
                 push @files, $fileLine;
             }
-            print $OUT sort sortFilesByFileName @files;
+
+            # Remove duplicate lines then sort.
+            my @uniqueLines = uniq(@files);
+            print $OUT sort sortFilesByFileName @uniqueLines;
             print $OUT $endMarker;
         }
-        # Sort these sections:
-        # - children
-        # - buildConfigurations
-        # - targets
-        # - packageProductDependencies
-        # - packageReferences
+        # Sort children, buildConfigurations, targets, packageProductDependencies, and packageReferences sections.
         elsif ($line =~ /^(\s*)(children|buildConfigurations|targets|packageProductDependencies|packageReferences) = \(\s*$/) {
             print $OUT $line;
             my $endMarker = $1 . ");";
@@ -127,7 +125,10 @@ for my $projectFile (@ARGV) {
                 }
                 push @children, $childLine;
             }
-            print $OUT sort sortChildrenByFileName @children;
+
+            # Remove duplicate lines then sort.
+            my @uniqueLines = uniq(@children);
+            print $OUT sort sortChildrenByFileName @uniqueLines;
             print $OUT $endMarker;
         }
         # Ignore whole PBXFrameworksBuildPhase section.
@@ -187,4 +188,11 @@ sub sortFilesByFileName($$)
     # Uncomment below line to have case-insensitive sorting.
     # return lc($aFileName) cmp lc($bFileName) if lc($aFileName) ne lc($bFileName);
     return $aFileName cmp $bFileName;
+}
+
+# Subroutine to remove duplicate items in an array.
+# https://perlmaven.com/unique-values-in-an-array-in-perl
+sub uniq {
+  my %seen;
+  return grep { !$seen{$_}++ } @_;
 }

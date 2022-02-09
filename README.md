@@ -10,6 +10,7 @@ This Perl script is a fork from [sort-Xcode-project-file](https://github.com/Web
 - Sort `packageProductDependencies` and `packageReferences` lists in project.
 - Sort `buildConfigurations` list in each target.
 - Case-sensitive sorting.
+- Remove duplicate references automatically.
 
 ## Usage
 
