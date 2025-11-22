@@ -49,6 +49,9 @@ use File::Spec;
 use File::Temp qw(tempfile);
 use Getopt::Long;
 
+# Maximum iterations when parsing brace-balanced blocks to prevent infinite loops
+use constant MAX_BRACE_ITERATIONS => 10000;
+
 # Allow list: names of "Begin ... section" sections we will parse and sort block entries for.
 # These are considered safe-to-sort (reordering entries shouldn't change Xcode behaviour).
 my %sortable_sections = map { $_ => 1 } qw(
@@ -118,135 +121,178 @@ for my $projectFile (@ARGV) {
         next;
     }
 
+    # Use CLEANUP => 1 for automatic temp file cleanup on normal and abnormal exits
     my ($OUT, $tempFileName) = tempfile(
         basename($projectFile) . "-XXXXXXXX",
         DIR => dirname($projectFile),
-        UNLINK => 0,
+        UNLINK => 0,  # We'll handle deletion manually for better control
     );
 
-    # Clean up temp file in case of die()
-    $SIG{__DIE__} = sub {
-        close(IN) if defined fileno(IN);
-        close($OUT) if defined fileno($OUT);
-        unlink($tempFileName);
+    # Process file in eval block for proper error handling and cleanup
+    eval {
+        open(my $IN, '<', $projectFile) or die "Could not open $projectFile: $!";
+
+        while (my $line = <$IN>) {
+            # Check for read errors
+            if (!defined $line && !eof($IN)) {
+                die "Error reading from $projectFile: $!";
+            }
+            last unless defined $line;
+
+            # Sort files section (array named files = (...); ).
+            if ($line =~ /^(\s*)files = \(\s*$/) {
+                print $OUT $line or die "Error writing to $tempFileName: $!";
+                my $endMarker = $1 . ");";
+                my @files;
+                while (my $fileLine = <$IN>) {
+                    if (!defined $fileLine) {
+                        die "Unexpected end of file while parsing files array in $projectFile";
+                    }
+                    if ($fileLine =~ /^\Q$endMarker\E\s*$/) {
+                        $endMarker = $fileLine;
+                        last;
+                    }
+                    push @files, $fileLine;
+                }
+
+                # Remove duplicate lines then sort.
+                my @uniqueLines = uniq(@files);
+                print $OUT sort sortFilesByFileName @uniqueLines or die "Error writing to $tempFileName: $!";
+                print $OUT $endMarker or die "Error writing to $tempFileName: $!";
+            }
+            # Sort children, buildConfigurations, targets, packageProductDependencies, and packageReferences sections (array-form).
+            elsif ($line =~ /^(\s*)(children|buildConfigurations|targets|packageProductDependencies|packageReferences) = \(\s*$/) {
+                print $OUT $line or die "Error writing to $tempFileName: $!";
+                my $endMarker = $1 . ");";
+                my @children;
+                while (my $childLine = <$IN>) {
+                    if (!defined $childLine) {
+                        die "Unexpected end of file while parsing array in $projectFile";
+                    }
+                    if ($childLine =~ /^\Q$endMarker\E\s*$/) {
+                        $endMarker = $childLine;
+                        last;
+                    }
+                    push @children, $childLine;
+                }
+
+                # Remove duplicate lines then sort.
+                my @uniqueLines = uniq(@children);
+                print $OUT sort sortChildrenByFileName @uniqueLines or die "Error writing to $tempFileName: $!";
+                print $OUT $endMarker or die "Error writing to $tempFileName: $!";
+            }
+            # Handle "Begin ... section" blocks; if section is in our sortable list, parse entries and sort by name
+            elsif ($line =~ /Begin\s+(\S+)\s+section/) {
+                my $sectionName = $1;
+                print $OUT $line or die "Error writing to $tempFileName: $!";
+
+                # Read everything until the corresponding End ... section line
+                if ($sortable_sections{$sectionName}) {
+                    # We will parse entries inside this section and sort them.
+                    my @entries;
+                    my $prefix = ''; # prefix lines that precede an entry (comments, blank lines)
+                    while (my $sectionLine = <$IN>) {
+                        if (!defined $sectionLine) {
+                            die "Unexpected end of file while parsing $sectionName section in $projectFile";
+                        }
+
+                        # If we reached the End ... section, break and print end marker later
+                        if ($sectionLine =~ /End\s+\Q$sectionName\E\s+section/) {
+                            # print sorted entries then the end marker
+                            my @unique = uniq(@entries);
+                            print $OUT sort sortBlocksByName @unique or die "Error writing to $tempFileName: $!";
+                            print $OUT $sectionLine or die "Error writing to $tempFileName: $!";
+                            last;
+                        }
+
+                        # Detect a block entry that begins with an object id comment, e.g. "  123abc... /* Name */ = {"
+                        if ($sectionLine =~ /^\s*([A-Fa-f0-9]{24})\s+\/\*\s*(.+?)\s*\*\/\s*=\s*(\{)?/) {
+                            # Start a new entry; include any prefix lines (comments/blank) that preceded it
+                            my $entry = $prefix . $sectionLine;
+                            $prefix = '';
+
+                            # If there's an opening brace, the entry may be multi-line. Balance braces.
+                            if (index($sectionLine, '{') != -1) {
+                                my $open = () = $sectionLine =~ /\{/g;
+                                my $close = () = $sectionLine =~ /\}/g;
+                                my $braceCount = $open - $close;
+                                my $iterations = 0;
+
+                                while ($braceCount > 0) {
+                                    # Safety check: prevent infinite loop on malformed files
+                                    if (++$iterations > MAX_BRACE_ITERATIONS) {
+                                        die "Exceeded maximum iterations ($iterations) while parsing brace-balanced block in $projectFile. File may be malformed.";
+                                    }
+
+                                    my $nl = <$IN>;
+                                    if (!defined $nl) {
+                                        die "Unexpected end of file while parsing brace-balanced block in $projectFile (unmatched braces)";
+                                    }
+
+                                    $entry .= $nl;
+                                    $open += () = $nl =~ /\{/g;
+                                    $close += () = $nl =~ /\}/g;
+                                    $braceCount = $open - $close;
+                                }
+                            }
+                            # If not a brace block, the entry likely ends on this line (single-line entry); we already have it.
+                            push @entries, $entry;
+                        } else {
+                            # Not the start of an entry: accumulate into prefix to attach to next entry,
+                            # preserving comments and spacing that belong to the following entry.
+                            $prefix .= $sectionLine;
+                        }
+                    }
+                } else {
+                    # Not a section we automatically sort: passthrough until End ... section (preserve original order)
+                    while (my $sectionLine = <$IN>) {
+                        if (!defined $sectionLine) {
+                            die "Unexpected end of file while passing through $sectionName section in $projectFile";
+                        }
+                        print $OUT $sectionLine or die "Error writing to $tempFileName: $!";
+                        if ($sectionLine =~ /End\s+\Q$sectionName\E\s+section/) {
+                            last;
+                        }
+                    }
+                }
+            }
+            # Ignore whole PBXFrameworksBuildPhase section (preserve original ordering)
+            elsif ($line =~ /^(.*)Begin PBXFrameworksBuildPhase section(.*)$/) {
+                print $OUT $line or die "Error writing to $tempFileName: $!";
+                while (my $ignoreLine = <$IN>) {
+                    if (!defined $ignoreLine) {
+                        die "Unexpected end of file while parsing PBXFrameworksBuildPhase section in $projectFile";
+                    }
+                    print $OUT $ignoreLine or die "Error writing to $tempFileName: $!";
+                    if ($ignoreLine =~ /^(.*)End PBXFrameworksBuildPhase section(.*)$/) {
+                        last;
+                    }
+                }
+            }
+            # Other lines: passthrough
+            else {
+                print $OUT $line or die "Error writing to $tempFileName: $!";
+            }
+        }
+
+        close($IN) or die "Error closing $projectFile: $!";
+        close($OUT) or die "Error closing $tempFileName: $!";
+
+        # Atomically replace original file
+        unlink($projectFile) or die "Could not delete $projectFile: $!";
+        rename($tempFileName, $projectFile) or die "Could not rename $tempFileName to $projectFile: $!";
     };
 
-    open(IN, "< $projectFile") || die "Could not open $projectFile: $!";
-    while (my $line = <IN>) {
-        # Sort files section (array named files = (...); ).
-        if ($line =~ /^(\s*)files = \(\s*$/) {
-            print $OUT $line;
-            my $endMarker = $1 . ");";
-            my @files;
-            while (my $fileLine = <IN>) {
-                if ($fileLine =~ /^\Q$endMarker\E\s*$/) {
-                    $endMarker = $fileLine;
-                    last;
-                }
-                push @files, $fileLine;
-            }
-
-            # Remove duplicate lines then sort.
-            my @uniqueLines = uniq(@files);
-            print $OUT sort sortFilesByFileName @uniqueLines;
-            print $OUT $endMarker;
+    # Handle any errors during processing
+    if ($@) {
+        my $error = $@;
+        # Attempt cleanup
+        close($OUT) if defined fileno($OUT);
+        if (-e $tempFileName) {
+            unlink($tempFileName) or warn "Could not clean up temporary file $tempFileName: $!";
         }
-        # Sort children, buildConfigurations, targets, packageProductDependencies, and packageReferences sections (array-form).
-        elsif ($line =~ /^(\s*)(children|buildConfigurations|targets|packageProductDependencies|packageReferences) = \(\s*$/) {
-            print $OUT $line;
-            my $endMarker = $1 . ");";
-            my @children;
-            while (my $childLine = <IN>) {
-                if ($childLine =~ /^\Q$endMarker\E\s*$/) {
-                    $endMarker = $childLine;
-                    last;
-                }
-                push @children, $childLine;
-            }
-
-            # Remove duplicate lines then sort.
-            my @uniqueLines = uniq(@children);
-            print $OUT sort sortChildrenByFileName @uniqueLines;
-            print $OUT $endMarker;
-        }
-        # Handle "Begin ... section" blocks; if section is in our sortable list, parse entries and sort by name
-        elsif ($line =~ /Begin\s+(\S+)\s+section/) {
-            my $sectionName = $1;
-            print $OUT $line; # print the Begin ... line as-is
-
-            # Read everything until the corresponding End ... section line
-            if ($sortable_sections{$sectionName}) {
-                # We will parse entries inside this section and sort them.
-                my @entries;
-                my $prefix = ''; # prefix lines that precede an entry (comments, blank lines)
-                while (my $sectionLine = <IN>) {
-                    # If we reached the End ... section, break and print end marker later
-                    if ($sectionLine =~ /End\s+\Q$sectionName\E\s+section/) {
-                        # print sorted entries then the end marker
-                        my @unique = uniq(@entries);
-                        print $OUT sort sortBlocksByName @unique;
-                        print $OUT $sectionLine;
-                        last;
-                    }
-
-                    # Detect a block entry that begins with an object id comment, e.g. "  123abc... /* Name */ = {"
-                    if ($sectionLine =~ /^\s*([A-Fa-f0-9]{24})\s+\/\*\s*(.+?)\s*\*\/\s*=\s*(\{)?/) {
-                        # Start a new entry; include any prefix lines (comments/blank) that preceded it
-                        my $entry = $prefix . $sectionLine;
-                        $prefix = '';
-
-                        # If there's an opening brace, the entry may be multi-line. Balance braces.
-                        if (index($sectionLine, '{') != -1) {
-                            my $open = () = $sectionLine =~ /\{/g;
-                            my $close = () = $sectionLine =~ /\}/g;
-                            my $braceCount = $open - $close;
-                            while ($braceCount > 0) {
-                                my $nl = <IN>;
-                                last unless defined $nl;
-                                $entry .= $nl;
-                                $open += () = $nl =~ /\{/g;
-                                $close += () = $nl =~ /\}/g;
-                                $braceCount = $open - $close;
-                            }
-                        }
-                        # If not a brace block, the entry likely ends on this line (single-line entry); we already have it.
-                        push @entries, $entry;
-                    } else {
-                        # Not the start of an entry: accumulate into prefix to attach to next entry,
-                        # preserving comments and spacing that belong to the following entry.
-                        $prefix .= $sectionLine;
-                    }
-                }
-            } else {
-                # Not a section we automatically sort: passthrough until End ... section (preserve original order)
-                while (my $sectionLine = <IN>) {
-                    print $OUT $sectionLine;
-                    if ($sectionLine =~ /End\s+\Q$sectionName\E\s+section/) {
-                        last;
-                    }
-                }
-            }
-        }
-        # Ignore whole PBXFrameworksBuildPhase section (preserve original ordering)
-        elsif ($line =~ /^(.*)Begin PBXFrameworksBuildPhase section(.*)$/) {
-            print $OUT $line;
-            while (my $ignoreLine = <IN>) {
-                print $OUT $ignoreLine;
-                if ($ignoreLine =~ /^(.*)End PBXFrameworksBuildPhase section(.*)$/) {
-                    last;
-                }
-            }
-        }
-        # Other lines: passthrough
-        else {
-            print $OUT $line;
-        }
+        die "Failed to process $projectFile: $error";
     }
-    close(IN);
-    close($OUT);
-
-    unlink($projectFile) || die "Could not delete $projectFile: $!";
-    rename($tempFileName, $projectFile) || die "Could not rename $tempFileName to $projectFile: $!";
 }
 
 exit 0;
