@@ -52,6 +52,55 @@ use Getopt::Long;
 # Maximum iterations when parsing brace-balanced blocks to prevent infinite loops
 use constant MAX_BRACE_ITERATIONS => 10000;
 
+# Xcode object ID format: 24 hexadecimal characters
+use constant XCODE_OBJECT_ID => qr/[A-Fa-f0-9]{24}/;
+
+# Compiled regex patterns for better performance and readability
+my $REGEX_ARRAY_START = qr/^
+    (\s*)                           # capture leading whitespace
+    (children|buildConfigurations|targets|packageProductDependencies|packageReferences)
+    \s* = \s* \( \s*$               # array opening
+/x;
+
+my $REGEX_FILES_ARRAY = qr/^
+    (\s*)                           # capture leading whitespace
+    files \s* = \s* \( \s*$         # files array opening
+/x;
+
+my $REGEX_CHILD_ENTRY = qr/^
+    \s*                             # optional leading whitespace
+    [A-Fa-f0-9]{24}                 # Xcode object ID (24 hex chars)
+    \s+ \/\* \s*                    # space and comment start
+    (.+?)                           # capture filename (non-greedy)
+    \s* \*\/ ,                      # comment end and comma
+    $                               # end of line
+/x;
+
+my $REGEX_FILE_ENTRY = qr/^
+    \s*                             # optional leading whitespace
+    [A-Fa-f0-9]{24}                 # Xcode object ID (24 hex chars)
+    \s+ \/\* \s*                    # space and comment start
+    (.+?)                           # capture filename (non-greedy)
+    \s* \*\/ \s+ in \s+             # comment end, "in", and phase name follows
+/x;
+
+my $REGEX_BLOCK_ENTRY = qr/^
+    \s*                             # optional leading whitespace
+    ([A-Fa-f0-9]{24})               # capture object ID (24 hex chars)
+    \s+ \/\* \s*                    # space and comment start
+    (.+?)                           # capture name (non-greedy)
+    \s* \*\/ \s* = \s*              # comment end and equals sign
+    (\{)?                           # optional opening brace (capture for multi-line detection)
+/mx;  # m flag: ^ and $ match line boundaries within string
+
+my $REGEX_BLOCK_NAME_COMMENT = qr/^
+    \s*                             # optional leading whitespace
+    [A-Fa-f0-9]{24}                 # Xcode object ID (24 hex chars)
+    \s+ \/\* \s*                    # space and comment start
+    (.+?)                           # capture name (non-greedy)
+    \s* \*\/ \s* =                  # comment end and equals sign
+/mx;
+
 # Allow list: names of "Begin ... section" sections we will parse and sort block entries for.
 # These are considered safe-to-sort (reordering entries shouldn't change Xcode behaviour).
 my %sortable_sections = map { $_ => 1 } qw(
@@ -140,7 +189,7 @@ for my $projectFile (@ARGV) {
             last unless defined $line;
 
             # Sort files section (array named files = (...); ).
-            if ($line =~ /^(\s*)files = \(\s*$/) {
+            if ($line =~ $REGEX_FILES_ARRAY) {
                 print $OUT $line or die "Error writing to $tempFileName: $!";
                 my $endMarker = $1 . ");";
                 my @files;
@@ -161,7 +210,7 @@ for my $projectFile (@ARGV) {
                 print $OUT $endMarker or die "Error writing to $tempFileName: $!";
             }
             # Sort children, buildConfigurations, targets, packageProductDependencies, and packageReferences sections (array-form).
-            elsif ($line =~ /^(\s*)(children|buildConfigurations|targets|packageProductDependencies|packageReferences) = \(\s*$/) {
+            elsif ($line =~ $REGEX_ARRAY_START) {
                 print $OUT $line or die "Error writing to $tempFileName: $!";
                 my $endMarker = $1 . ");";
                 my @children;
@@ -206,13 +255,14 @@ for my $projectFile (@ARGV) {
                         }
 
                         # Detect a block entry that begins with an object id comment, e.g. "  123abc... /* Name */ = {"
-                        if ($sectionLine =~ /^\s*([A-Fa-f0-9]{24})\s+\/\*\s*(.+?)\s*\*\/\s*=\s*(\{)?/) {
+                        if ($sectionLine =~ $REGEX_BLOCK_ENTRY) {
+                            my ($objectId, $name, $hasBrace) = ($1, $2, $3);
                             # Start a new entry; include any prefix lines (comments/blank) that preceded it
                             my $entry = $prefix . $sectionLine;
                             $prefix = '';
 
                             # If there's an opening brace, the entry may be multi-line. Balance braces.
-                            if (index($sectionLine, '{') != -1) {
+                            if (defined $hasBrace) {
                                 my $open = () = $sectionLine =~ /\{/g;
                                 my $close = () = $sectionLine =~ /\}/g;
                                 my $braceCount = $open - $close;
@@ -348,22 +398,27 @@ sub sortBlocksByName($$)
 # -----------------------------------------------------------------------------
 sub extract_name_from_block {
     my ($block) = @_;
+
     # Try to find comment after object id: "/* Name */"
-    if ($block =~ /^\s*[A-Fa-f0-9]{24}\s+\/\*\s*(.+?)\s*\*\/\s*=/m) {
+    if ($block =~ $REGEX_BLOCK_NAME_COMMENT) {
         return $1;
     }
+
     # Fallback: look for name = "..."
-    if ($block =~ /name\s*=\s*"(.*?)"/m) {
+    if ($block =~ /name \s* = \s* "(.*?)"/mx) {
         return $1;
     }
+
     # Fallback: look for path = "..."
-    if ($block =~ /path\s*=\s*"(.*?)"/m) {
+    if ($block =~ /path \s* = \s* "(.*?)"/mx) {
         return $1;
     }
+
     # Last resort: return the first non-whitespace line trimmed
     if ($block =~ /^\s*(\S.*)$/m) {
         return $1;
     }
+
     return $block;
 }
 
@@ -380,13 +435,12 @@ sub extract_name_from_block {
 #   - Extracts the filename from the comment portion of the entry.
 #   - Applies directory-vs-file heuristic as in the original script.
 #   - Uses natural_cmp() for full natural ordering (numeric parts compared numerically).
-sub sortChildrenByFileName($$)
+sub sortChildrenByFileName($)
 {
     my ($a, $b) = @_;
-    my $aFileName = $1 if $a =~ /^\s*[A-Fa-f0-9]{24}\s+\/\*\s*(.+?)\s*\*\/,$/;
-    my $bFileName = $1 if $b =~ /^\s*[A-Fa-f0-9]{24}\s+\/\*\s*(.+?)\s*\*\/,$/;
-    $aFileName //= '';
-    $bFileName //= '';
+
+    my $aFileName = $a =~ $REGEX_CHILD_ENTRY ? $1 : '';
+    my $bFileName = $b =~ $REGEX_CHILD_ENTRY ? $1 : '';
 
     my $aSuffix = $1 if $aFileName =~ m/\.([^.]+)$/;
     my $bSuffix = $1 if $bFileName =~ m/\.([^.]+)$/;
