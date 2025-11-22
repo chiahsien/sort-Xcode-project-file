@@ -234,8 +234,9 @@ for my $projectFile (@ARGV) {
 
                         # If we reached the End ... section, break and print end marker later
                         if ($sectionLine =~ /End\s+\Q$sectionName\E\s+section/) {
-                            # print sorted entries then the end marker
-                            my @unique = uniq(@entries);
+                            # Filter out any undefined or empty entries, remove duplicates, then sort
+                            my @validEntries = grep { defined $_ && $_ ne '' } @entries;
+                            my @unique = uniq(@validEntries);
                             print $OUT sort sortBlocksByName @unique or die "Error writing to $tempFileName: $!";
                             print $OUT $sectionLine or die "Error writing to $tempFileName: $!";
                             last;
@@ -243,7 +244,9 @@ for my $projectFile (@ARGV) {
 
                         # Try to parse as a block entry
                         my $entry = parse_block_entry($IN, $sectionLine, $projectFile, $tempFileName);
-                        push @entries, $entry if defined $entry;
+                        if (defined $entry && $entry ne '') {
+                            push @entries, $entry;
+                        }
                     }
                 } else {
                     # Not a section we automatically sort: passthrough until End ... section (preserve original order)
@@ -395,7 +398,7 @@ sub read_array_entries {
             # Not the start of an entry: accumulate into prefix to attach to next entry,
             # preserving comments and spacing that belong to the following entry.
             $prefix .= $sectionLine;
-            return undef;
+            return;  # Explicitly return undef for consistency
         }
     }
 
@@ -436,7 +439,7 @@ sub count_braces {
 # Returns:
 #   -1, 0, 1 as per Perl comparison convention.
 # -----------------------------------------------------------------------------
-sub sortBlocksByName($$)
+sub sortBlocksByName($)
 {
     my ($a, $b) = @_;
     my $aName = extract_name_from_block($a);
@@ -444,10 +447,11 @@ sub sortBlocksByName($$)
 
     # Handle directories vs files as in children sorting: treat items without suffix as directories.
     # When case-insensitive mode is enabled, normalize the lookup key for %isFile.
-    my $aSuffix = $1 if defined $aName && $aName =~ m/\.([^.]+)$/;
-    my $bSuffix = $1 if defined $bName && $bName =~ m/\.([^.]+)$/;
-    my $aIsDirectory = !$aSuffix && !($CASE_INSENSITIVE ? $isFile_lc{lc($aName)} : $isFile{$aName});
-    my $bIsDirectory = !$bSuffix && !($CASE_INSENSITIVE ? $isFile_lc{lc($bName)} : $isFile{$bName});
+    my $aSuffix = (defined $aName && $aName =~ m/\.([^.]+)$/) ? $1 : undef;
+    my $bSuffix = (defined $bName && $bName =~ m/\.([^.]+)$/) ? $1 : undef;
+
+    my $aIsDirectory = !defined $aSuffix && !($CASE_INSENSITIVE ? $isFile_lc{lc($aName // '')} : $isFile{$aName // ''});
+    my $bIsDirectory = !defined $bSuffix && !($CASE_INSENSITIVE ? $isFile_lc{lc($bName // '')} : $isFile{$bName // ''});
     return $bIsDirectory <=> $aIsDirectory if $aIsDirectory != $bIsDirectory;
 
     # Use natural comparison for all names (respects $CASE_INSENSITIVE).
@@ -472,6 +476,9 @@ sub sortBlocksByName($$)
 # -----------------------------------------------------------------------------
 sub extract_name_from_block {
     my ($block) = @_;
+
+    # Handle undefined or empty blocks
+    return '' if !defined $block || $block eq '';
 
     # Try to find comment after object id: "/* Name */"
     if ($block =~ $REGEX_BLOCK_NAME_COMMENT) {
