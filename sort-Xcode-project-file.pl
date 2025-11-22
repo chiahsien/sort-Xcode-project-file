@@ -190,19 +190,11 @@ for my $projectFile (@ARGV) {
 
             # Sort files section (array named files = (...); ).
             if ($line =~ $REGEX_FILES_ARRAY) {
+                my $indent = $1;
                 print $OUT $line or die "Error writing to $tempFileName: $!";
-                my $endMarker = $1 . ");";
-                my @files;
-                while (my $fileLine = <$IN>) {
-                    if (!defined $fileLine) {
-                        die "Unexpected end of file while parsing files array in $projectFile";
-                    }
-                    if ($fileLine =~ /^\Q$endMarker\E\s*$/) {
-                        $endMarker = $fileLine;
-                        last;
-                    }
-                    push @files, $fileLine;
-                }
+
+                my $endMarker = $indent . ");";
+                my @files = read_array_entries($IN, $endMarker, $projectFile, 'files');
 
                 # Remove duplicate lines then sort.
                 my @uniqueLines = uniq(@files);
@@ -211,19 +203,12 @@ for my $projectFile (@ARGV) {
             }
             # Sort children, buildConfigurations, targets, packageProductDependencies, and packageReferences sections (array-form).
             elsif ($line =~ $REGEX_ARRAY_START) {
+                my $indent = $1;
+                my $arrayName = $2;
                 print $OUT $line or die "Error writing to $tempFileName: $!";
-                my $endMarker = $1 . ");";
-                my @children;
-                while (my $childLine = <$IN>) {
-                    if (!defined $childLine) {
-                        die "Unexpected end of file while parsing array in $projectFile";
-                    }
-                    if ($childLine =~ /^\Q$endMarker\E\s*$/) {
-                        $endMarker = $childLine;
-                        last;
-                    }
-                    push @children, $childLine;
-                }
+
+                my $endMarker = $indent . ");";
+                my @children = read_array_entries($IN, $endMarker, $projectFile, $arrayName);
 
                 # Remove duplicate lines then sort.
                 my @uniqueLines = uniq(@children);
@@ -239,7 +224,9 @@ for my $projectFile (@ARGV) {
                 if ($sortable_sections{$sectionName}) {
                     # We will parse entries inside this section and sort them.
                     my @entries;
-                    my $prefix = ''; # prefix lines that precede an entry (comments, blank lines)
+                    reset_block_prefix();  # Ensure clean state for new section
+
+                    # Parse all entries in this section
                     while (my $sectionLine = <$IN>) {
                         if (!defined $sectionLine) {
                             die "Unexpected end of file while parsing $sectionName section in $projectFile";
@@ -254,44 +241,9 @@ for my $projectFile (@ARGV) {
                             last;
                         }
 
-                        # Detect a block entry that begins with an object id comment, e.g. "  123abc... /* Name */ = {"
-                        if ($sectionLine =~ $REGEX_BLOCK_ENTRY) {
-                            my ($objectId, $name, $hasBrace) = ($1, $2, $3);
-                            # Start a new entry; include any prefix lines (comments/blank) that preceded it
-                            my $entry = $prefix . $sectionLine;
-                            $prefix = '';
-
-                            # If there's an opening brace, the entry may be multi-line. Balance braces.
-                            if (defined $hasBrace) {
-                                my $open = () = $sectionLine =~ /\{/g;
-                                my $close = () = $sectionLine =~ /\}/g;
-                                my $braceCount = $open - $close;
-                                my $iterations = 0;
-
-                                while ($braceCount > 0) {
-                                    # Safety check: prevent infinite loop on malformed files
-                                    if (++$iterations > MAX_BRACE_ITERATIONS) {
-                                        die "Exceeded maximum iterations ($iterations) while parsing brace-balanced block in $projectFile. File may be malformed.";
-                                    }
-
-                                    my $nl = <$IN>;
-                                    if (!defined $nl) {
-                                        die "Unexpected end of file while parsing brace-balanced block in $projectFile (unmatched braces)";
-                                    }
-
-                                    $entry .= $nl;
-                                    $open += () = $nl =~ /\{/g;
-                                    $close += () = $nl =~ /\}/g;
-                                    $braceCount = $open - $close;
-                                }
-                            }
-                            # If not a brace block, the entry likely ends on this line (single-line entry); we already have it.
-                            push @entries, $entry;
-                        } else {
-                            # Not the start of an entry: accumulate into prefix to attach to next entry,
-                            # preserving comments and spacing that belong to the following entry.
-                            $prefix .= $sectionLine;
-                        }
+                        # Try to parse as a block entry
+                        my $entry = parse_block_entry($IN, $sectionLine, $projectFile, $tempFileName);
+                        push @entries, $entry if defined $entry;
                     }
                 } else {
                     # Not a section we automatically sort: passthrough until End ... section (preserve original order)
@@ -346,6 +298,128 @@ for my $projectFile (@ARGV) {
 }
 
 exit 0;
+
+# -----------------------------------------------------------------------------
+# Read array entries until end marker is found
+#
+# Purpose:
+#   Read lines from an array declaration (e.g., "files = ( ... );") until
+#   the closing marker is found, with proper error handling.
+#
+# Parameters:
+#   $IN          - input file handle
+#   $endMarker   - the closing marker to look for (e.g., "    );")
+#   $projectFile - project file name (for error messages)
+#   $arrayName   - name of array being parsed (for error messages)
+#
+# Returns:
+#   Array of lines read (not including the end marker)
+#   Updates $endMarker reference to include actual line read
+# -----------------------------------------------------------------------------
+sub read_array_entries {
+    my ($IN, $endMarker, $projectFile, $arrayName) = @_;
+    my @entries;
+
+    while (my $line = <$IN>) {
+        if (!defined $line) {
+            die "Unexpected end of file while parsing $arrayName array in $projectFile";
+        }
+        if ($line =~ /^\Q$endMarker\E\s*$/) {
+            $_[1] = $line;  # Update the end marker to the actual line read
+            last;
+        }
+        push @entries, $line;
+    }
+
+    return @entries;
+}
+
+# -----------------------------------------------------------------------------
+# Parse a block entry from the input stream
+#
+# Purpose:
+#   Extract a complete block entry, handling both single-line and multi-line
+#   (brace-balanced) entries. Also preserves preceding comments/blank lines.
+#
+# Parameters:
+#   $IN           - input file handle
+#   $sectionLine  - current line being processed
+#   $projectFile  - project file name (for error messages)
+#   $tempFileName - temp file name (for error messages)
+#
+# Returns:
+#   Complete entry string if this is a block entry, undef otherwise
+#
+# Note:
+#   Uses a package-level variable to maintain prefix state between calls
+# -----------------------------------------------------------------------------
+{
+    # Package-level variable to accumulate prefix lines between entries
+    # Scoped to this block to prevent access from outside
+    my $prefix = '';
+
+    sub parse_block_entry {
+        my ($IN, $sectionLine, $projectFile, $tempFileName) = @_;
+
+        # Detect a block entry that begins with an object id comment
+        if ($sectionLine =~ $REGEX_BLOCK_ENTRY) {
+            my ($objectId, $name, $hasBrace) = ($1, $2, $3);
+
+            # Start a new entry; include any prefix lines (comments/blank) that preceded it
+            my $entry = $prefix . $sectionLine;
+            $prefix = '';  # Reset prefix for next entry
+
+            # If there's an opening brace, the entry may be multi-line. Balance braces.
+            if (defined $hasBrace) {
+                my $braceCount = count_braces($sectionLine);
+                my $iterations = 0;
+
+                while ($braceCount > 0) {
+                    # Safety check: prevent infinite loop on malformed files
+                    if (++$iterations > MAX_BRACE_ITERATIONS) {
+                        die "Exceeded maximum iterations ($iterations) while parsing brace-balanced block in $projectFile. File may be malformed.";
+                    }
+
+                    my $nextLine = <$IN>;
+                    if (!defined $nextLine) {
+                        die "Unexpected end of file while parsing brace-balanced block in $projectFile (unmatched braces)";
+                    }
+
+                    $entry .= $nextLine;
+                    $braceCount += count_braces($nextLine);
+                }
+            }
+
+            return $entry;
+        } else {
+            # Not the start of an entry: accumulate into prefix to attach to next entry,
+            # preserving comments and spacing that belong to the following entry.
+            $prefix .= $sectionLine;
+            return undef;
+        }
+    }
+
+    # Helper sub to reset prefix state (useful when starting a new section)
+    sub reset_block_prefix {
+        $prefix = '';
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Count net braces in a line (opening braces minus closing braces)
+#
+# Parameters:
+#   $line - line of text to analyze
+#
+# Returns:
+#   Integer: positive if more opening braces, negative if more closing braces
+# -----------------------------------------------------------------------------
+sub count_braces {
+    my ($line) = @_;
+    my $open = () = $line =~ /\{/g;
+    my $close = () = $line =~ /\}/g;
+    return $open - $close;
+}
 
 # -----------------------------------------------------------------------------
 # Comparator used to sort block entries (Begin ... section entries).
