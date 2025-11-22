@@ -244,6 +244,21 @@ exit 0;
 # 4) fallback: whole entry string
 # Natural sorting is applied to names so numeric substrings compare numerically.
 # -----------------------------------------------------------------------------
+#
+# Parameters:
+#   ($a, $b) - each is a string containing the full block text for a single entry.
+#             Typical input is a multi-line block starting with an object id and comment:
+#               "  0123456789abcdef01234567 /* MyFile.m */ = { ... }"
+#
+# Returns:
+#   -1, 0, 1 as per Perl comparison convention: negative if $a < $b, 0 if equal, positive if $a > $b.
+#
+# Behavior:
+#   - Extracts a sorting key using extract_name_from_block() for each block.
+#   - Preserves the existing heuristics that treat items without file suffix as "directories"
+#     (these are sorted after files unless listed in %isFile).
+#   - Uses natural_cmp() which implements natural (human) ordering: numeric runs compared numerically.
+#   - Case-sensitive by default.
 sub sortBlocksByName($$)
 {
     my ($a, $b) = @_;
@@ -261,7 +276,27 @@ sub sortBlocksByName($$)
     return natural_cmp($aName // '', $bName // '');
 }
 
+# -----------------------------------------------------------------------------
 # Extract a name from a block entry string.
+#
+# Purpose:
+#   Produce a human-friendly key for sorting a PBX block entry.
+#
+# Parameters:
+#   $block - full text of a block entry (may be single-line or multi-line).
+#
+# Returns:
+#   A string representing the extracted name/key. The search order is:
+#     1) comment after object id: "/* Name */" (preferred)
+#     2) name = "..." inside the block
+#     3) path = "..." inside the block
+#     4) first non-empty line of the block
+#   If none matched, returns the original block string.
+#
+# Notes / assumptions:
+#   - Assumes object ids are common Xcode-style 24-hex characters (case-insensitive).
+#   - Uses non-greedy comment capture to avoid spanning beyond the intended comment.
+#   - Designed to be forgiving with whitespace and formatting differences.
 sub extract_name_from_block {
     my ($block) = @_;
     # Try to find comment after object id: "/* Name */"
@@ -283,10 +318,19 @@ sub extract_name_from_block {
     return $block;
 }
 
-# -----------------------------------------------------------------------------
-# Existing comparators for array-style entries (files / children).
-# Updated to use natural sorting for file names.
-# -----------------------------------------------------------------------------
+# sortChildrenByFileName:
+# Parameters:
+#   ($a, $b) - each is a single line string representing an entry within a
+#              "children = ( ... );" or similar array. Typical form:
+#                "        012345... /* Foo.m */,"
+#
+# Returns:
+#   -1, 0, 1 following Perl comparison semantics.
+#
+# Behavior:
+#   - Extracts the filename from the comment portion of the entry.
+#   - Applies directory-vs-file heuristic as in the original script.
+#   - Uses natural_cmp() for full natural ordering (numeric parts compared numerically).
 sub sortChildrenByFileName($$)
 {
     my ($a, $b) = @_;
@@ -305,6 +349,18 @@ sub sortChildrenByFileName($$)
     return natural_cmp($aFileName, $bFileName);
 }
 
+# sortFilesByFileName:
+# Parameters:
+#   ($a, $b) - each is a single line string representing an entry within a
+#              "files = ( ... );" array. Typical form:
+#                "        012345... /* Foo.m in Sources */,"
+#
+# Returns:
+#   -1, 0, 1 following Perl comparison semantics.
+#
+# Behavior:
+#   - Extracts the filename from the comment portion before " in ".
+#   - Uses natural_cmp() for natural ordering.
 sub sortFilesByFileName($$)
 {
     my ($a, $b) = @_;
@@ -323,7 +379,14 @@ sub sortFilesByFileName($$)
 # - If both runs are numeric, compare numerically (as integers), and if equal,
 #   shorter digit-run (fewer leading zeros) is considered smaller.
 # - Otherwise, compare lexically (case-sensitive).
-# If all common runs are equal, shorter token list sorts first (e.g. "file" < "file1").
+# If all common runs are equal, the one with fewer remaining tokens sorts first
+# (e.g. "file" < "file1").
+#
+# Parameters:
+#   $x, $y - two strings to compare
+#
+# Returns:
+#   -1, 0, 1 following Perl comparison semantics.
 # -----------------------------------------------------------------------------
 sub natural_cmp {
     my ($x, $y) = @_;
@@ -365,6 +428,13 @@ sub natural_cmp {
 
 # Subroutine to remove duplicate items in an array while preserving first occurrence order.
 # https://perlmaven.com/unique-values-in-an-array-in-perl
+#
+# Parameters:
+#   A list of strings (array)
+#
+# Returns:
+#   A list containing only the first occurrence of each unique string, in the
+#   original relative order.
 sub uniq {
   my %seen;
   return grep { !$seen{$_}++ } @_;
