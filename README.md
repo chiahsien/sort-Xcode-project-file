@@ -9,18 +9,30 @@ This Perl script is a fork from [sort-Xcode-project-file](https://github.com/Web
 - Sort `targets` list in project.
 - Sort `packageProductDependencies` and `packageReferences` lists in project.
 - Sort `buildConfigurations` list in each target.
-- Case-sensitive sorting.
+- Sort several additional whole "Begin ... section" blocks such as:
+  - `PBXFileReference`, `PBXBuildFile`, `PBXGroup`, `PBXVariantGroup`,
+  - `PBXReferenceProxy`, `PBXContainerItemProxy`, `PBXTargetDependency`,
+  - `XCBuildConfiguration`, `XCConfigurationList`.
+- Case-sensitive sorting by default (preserves original behavior).
+- Option to enable case-insensitive sorting: `--case-insensitive`.
 - Remove duplicate references automatically.
+- Natural (human) sorting for names/filenames is applied (so numeric substrings are compared numerically, e.g. `file2` < `file10`).
 
 ## Usage
 
-**Please backup Xcode project file before using this script.** You can execute following command to sort a project file:
+**Please backup Xcode project file before using this script.** You can execute the following command to sort a project file:
 
-`perl sort-Xcode-project-file.pl <path-to-xcodeproj-file>`
+`perl sort-Xcode-project-file.pl <path-to-xcodeproj-or-project.pbxproj>`
+
+Common options supported by the script:
+- `--case-insensitive` : enable case-insensitive sorting (default is case-sensitive)
+- `--case-sensitive` : explicit alias to force case-sensitive sorting
+- `-h`, `--help` : show help
+- `-w`, `--no-warnings` : suppress warnings
 
 You can use it to sort Xcode project file before committing it to git version control. Sorting project file can decrease the merging conflict possibility.
 
-It is recommended to do it everytime when a project is about to be committed, git's `pre-commit` hook can do that for us.
+It is recommended to do it every time a project is about to be committed; git's `pre-commit` hook can do that for us.
 
 ### 1.
 
@@ -28,7 +40,7 @@ Create a `Scripts` directory in project root directory, and put `sort-Xcode-proj
 
 ### 2.
 
-Put following codes into `.git/hooks/pre-commit` file.
+Put the following code into `.git/hooks/pre-commit` file.
 
 ```bash
 #!/bin/sh
@@ -62,10 +74,6 @@ Put following line into `.gitattributes` file then commit it.
 ```
 
 ## To-Do
-
-- [ ] Sort file names numerically.
-
-  `1, 2, 10, 11` instead of `1, 10, 11, 2`.
 
 - [ ] Command line option to bypass `PBXFrameworksBuildPhase` section or not.
 
