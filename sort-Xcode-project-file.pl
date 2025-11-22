@@ -53,46 +53,65 @@ use Getopt::Long;
 use constant MAX_BRACE_ITERATIONS => 10000;
 
 # Xcode object ID format: 24 hexadecimal characters
+# Example: A1B2C3D4E5F6789012345678
 use constant XCODE_OBJECT_ID => qr/[A-Fa-f0-9]{24}/;
 
+# -----------------------------------------------------------------------------
 # Compiled regex patterns for better performance and readability
+# -----------------------------------------------------------------------------
+
+# Matches array declarations like:
+#   children = (
+#   buildConfigurations = (
+#   targets = (
 my $REGEX_ARRAY_START = qr/^
-    (\s*)                           # capture leading whitespace
+    (\s*)                           # capture leading whitespace (indentation level)
     (children|buildConfigurations|targets|packageProductDependencies|packageReferences)
-    \s* = \s* \( \s*$               # array opening
+    \s* = \s* \( \s*$               # equals sign, opening paren, optional whitespace
 /x;
 
+# Matches files array declaration:
+#   files = (
 my $REGEX_FILES_ARRAY = qr/^
-    (\s*)                           # capture leading whitespace
-    files \s* = \s* \( \s*$         # files array opening
+    (\s*)                           # capture leading whitespace (indentation level)
+    files \s* = \s* \( \s*$         # "files", equals, opening paren
 /x;
 
+# Matches child/target/config entries in arrays:
+#   A1B2C3D4E5F6789012345678 /* AppDelegate.m */,
 my $REGEX_CHILD_ENTRY = qr/^
     \s*                             # optional leading whitespace
     [A-Fa-f0-9]{24}                 # Xcode object ID (24 hex chars)
     \s+ \/\* \s*                    # space and comment start
-    (.+?)                           # capture filename (non-greedy)
-    \s* \*\/ ,                      # comment end and comma
+    (.+?)                           # capture filename/name (non-greedy)
+    \s* \*\/ ,                      # comment end and trailing comma
     $                               # end of line
 /x;
 
+# Matches file entries in files arrays:
+#   A1B2C3D4E5F6789012345678 /* AppDelegate.m in Sources */,
 my $REGEX_FILE_ENTRY = qr/^
     \s*                             # optional leading whitespace
     [A-Fa-f0-9]{24}                 # Xcode object ID (24 hex chars)
     \s+ \/\* \s*                    # space and comment start
     (.+?)                           # capture filename (non-greedy)
-    \s* \*\/ \s+ in \s+             # comment end, "in", and phase name follows
+    \s* \*\/ \s+ in \s+             # comment end, "in", and build phase follows
 /x;
 
+# Matches block entry declarations (single or multi-line):
+#   A1B2C3D4E5F6789012345678 /* AppDelegate.m */ = {
+#   A1B2C3D4E5F6789012345678 /* Debug */ = {
 my $REGEX_BLOCK_ENTRY = qr/^
     \s*                             # optional leading whitespace
     ([A-Fa-f0-9]{24})               # capture object ID (24 hex chars)
     \s+ \/\* \s*                    # space and comment start
-    (.+?)                           # capture name (non-greedy)
-    \s* \*\/ \s* = \s*              # comment end and equals sign
-    (\{)?                           # optional opening brace (capture for multi-line detection)
+    (.+?)                           # capture name/description (non-greedy)
+    \s* \*\/ \s* = \s*              # comment end, equals sign
+    (\{)?                           # optional opening brace (captured for multi-line detection)
 /mx;  # m flag: ^ and $ match line boundaries within string
 
+# Matches block entry header with comment:
+#   A1B2C3D4E5F6789012345678 /* Name */ =
 my $REGEX_BLOCK_NAME_COMMENT = qr/^
     \s*                             # optional leading whitespace
     [A-Fa-f0-9]{24}                 # Xcode object ID (24 hex chars)
@@ -103,6 +122,15 @@ my $REGEX_BLOCK_NAME_COMMENT = qr/^
 
 # Allow list: names of "Begin ... section" sections we will parse and sort block entries for.
 # These are considered safe-to-sort (reordering entries shouldn't change Xcode behaviour).
+#
+# Why these sections are sortable:
+# - They represent declarative content (file references, configurations, groups)
+# - Xcode references items by ID, not by position in file
+# - Sorting helps with version control and reduces merge conflicts
+#
+# Sections NOT included (and why):
+# - PBXSourcesBuildPhase, PBXFrameworksBuildPhase: order affects build/link order
+# - buildPhases arrays: compilation order matters
 my %sortable_sections = map { $_ => 1 } qw(
     PBXFileReference
     PBXBuildFile
@@ -115,9 +143,14 @@ my %sortable_sections = map { $_ => 1 } qw(
     XCConfigurationList
 );
 
-# Some files without extensions, so they can sort with other files.
-# Otherwise, names without extensions are assumed to be groups or directories and sorted last.
-# Keep original-cased keys by default; a lowercase map is built for case-insensitive lookups.
+# Files without extensions that should be treated as files (not directories).
+#
+# Why this is needed:
+# - Normally, items without extensions are assumed to be directories/folders
+# - These specific names are actually executable files (scripts, binaries)
+# - Examples: Makefile, create_hash_table, Rakefile
+#
+# The %isFile hash uses original case; %isFile_lc provides case-insensitive lookups
 my %isFile = map { $_ => 1 } qw(
     create_hash_table
 );
@@ -558,19 +591,43 @@ sub sortFilesByFileName($$)
 }
 
 # -----------------------------------------------------------------------------
-# Natural string comparator:
-# Splits strings into runs of digits and non-digits. Compares runs pairwise:
-# - If both runs are numeric, compare numerically (as integers), and if equal,
-#   shorter digit-run (fewer leading zeros) is considered smaller.
-# - Otherwise, compare lexically. If case-insensitive mode is enabled, non-digit
-#   runs are compared in lowercase.
-# If all common runs are equal, the one with fewer remaining tokens sorts first.
+# Natural string comparator with case-sensitivity support
+#
+# Purpose:
+#   Compare two strings using natural (alphanumeric) sorting where numeric
+#   parts are compared numerically rather than lexically.
+#
+# Algorithm:
+#   1. Split each string into alternating runs of digits and non-digits
+#      Example: "file10b" -> ["file", "10", "b"]
+#   2. Compare runs pairwise from left to right:
+#      - If both runs are numeric: compare as integers
+#        * If equal numerically, prefer shorter string (fewer leading zeros)
+#        * Example: "01" < "1" (when numeric values equal)
+#      - If either run is non-numeric: compare lexically
+#        * Use lowercase comparison if $CASE_INSENSITIVE is enabled
+#   3. If all common runs are equal, shorter array (fewer parts) sorts first
 #
 # Parameters:
-#   $x, $y - two strings to compare
+#   $x, $y - Two strings to compare
 #
 # Returns:
-#   -1, 0, 1 following Perl comparison semantics.
+#   -1 if $x < $y
+#    0 if $x == $y
+#    1 if $x > $y
+#
+# Examples:
+#   Case-sensitive mode:
+#     natural_cmp("file2", "file10")     => -1  (2 < 10)
+#     natural_cmp("File", "file")        => -1  ('F' < 'f' in ASCII)
+#     natural_cmp("file01", "file1")     => -1  (same value, "01" is longer)
+#
+#   Case-insensitive mode:
+#     natural_cmp("File2", "file10")     => -1  (2 < 10, case ignored)
+#     natural_cmp("File", "file")        =>  0  (equal when ignoring case)
+#
+# Global Variables:
+#   $CASE_INSENSITIVE - If true, non-digit runs are compared case-insensitively
 # -----------------------------------------------------------------------------
 sub natural_cmp {
     my ($x, $y) = @_;
@@ -579,6 +636,7 @@ sub natural_cmp {
     return 0 if $x eq $y;
 
     # Tokenize into digit and non-digit runs. Preserve order.
+    # Example: "abc123def45" -> ("abc", "123", "def", "45")
     my @xa = ($x =~ /(\d+|[^\d]+)/g);
     my @ya = ($y =~ /(\d+|[^\d]+)/g);
 
@@ -587,19 +645,20 @@ sub natural_cmp {
         my $pb = shift @ya;
 
         if ($pa =~ /^\d+$/ && $pb =~ /^\d+$/) {
-            # Compare numerically
+            # Both parts are numeric: compare as integers
             my $na = $pa + 0;
             my $nb = $pb + 0;
             if ($na != $nb) {
                 return $na <=> $nb;
             }
-            # If numeric values equal (e.g. "001" vs "1"), prefer shorter digit run (fewer leading zeros)
+            # If numeric values equal (e.g. "001" vs "1"), prefer shorter digit run
+            # This handles leading zeros: "1" < "01" < "001"
             if (length($pa) != length($pb)) {
                 return length($pa) <=> length($pb);
             }
-            next; # equal numeric and equal length -> continue
+            next; # equal numeric value and equal length -> continue to next part
         } else {
-            # Non-numeric comparison:
+            # Non-numeric comparison (at least one part is non-numeric):
             if ($CASE_INSENSITIVE) {
                 my $la = lc($pa);
                 my $lb = lc($pb);
@@ -615,19 +674,42 @@ sub natural_cmp {
         }
     }
 
-    # If one has remaining runs, the shorter (fewer remaining tokens) sorts first.
+    # If one string has remaining parts, the shorter one (fewer parts) sorts first
+    # Example: "file" < "file2" (["file"] vs ["file", "2"])
     return scalar(@xa) <=> scalar(@ya);
 }
 
-# Subroutine to remove duplicate items in an array while preserving first occurrence order.
-# https://perlmaven.com/unique-values-in-an-array-in-perl
+# -----------------------------------------------------------------------------
+# Remove duplicate items while preserving first occurrence order
+#
+# Purpose:
+#   Eliminate duplicate entries from an array while maintaining the order
+#   in which unique items first appeared.
+#
+# Algorithm:
+#   Uses a hash to track seen items. The grep function filters out items
+#   that have been seen before (where $seen{$_}++ returns a true value).
 #
 # Parameters:
-#   A list of strings (array)
+#   @_ - List of items (typically strings)
 #
 # Returns:
-#   A list containing only the first occurrence of each unique string, in the
-#   original relative order.
+#   List containing only the first occurrence of each unique item, in
+#   their original relative order.
+#
+# Examples:
+#   uniq("a", "b", "a", "c", "b") => ("a", "b", "c")
+#   uniq("x", "x", "x")           => ("x")
+#   uniq()                        => ()
+#
+# Reference:
+#   https://perlmaven.com/unique-values-in-an-array-in-perl
+#
+# Note:
+#   This is a simple implementation suitable for most cases. For very large
+#   arrays or when memory is a concern, consider using List::Util's uniq()
+#   function from Perl 5.26+.
+# -----------------------------------------------------------------------------
 sub uniq {
   my %seen;
   return grep { !$seen{$_}++ } @_;
