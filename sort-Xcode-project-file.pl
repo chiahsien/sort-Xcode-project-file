@@ -33,6 +33,7 @@
 # - Adds sorting for "Begin ... section" blocks such as PBXFileReference, PBXBuildFile, PBXGroup,
 #   XCBuildConfiguration, PBXVariantGroup, PBXReferenceProxy, PBXContainerItemProxy, PBXTargetDependency.
 # - More robust block parsing that balances braces to support multi-line entries.
+# - Use natural sort for all file/name comparisons (so "file2" < "file10", and numeric parts are compared numerically).
 #
 # NOTE: This script deliberately does NOT sort buildPhases arrays (their order is build-order-sensitive).
 # Use caution adding more automatic sorting behaviour.
@@ -172,7 +173,7 @@ for my $projectFile (@ARGV) {
                         last;
                     }
 
-                    # Detect a block entry that begins with an object id comment, e.g. "  123ABC... /* Name */ = {"
+                    # Detect a block entry that begins with an object id comment, e.g. "  123abc... /* Name */ = {"
                     if ($sectionLine =~ /^\s*([A-Fa-f0-9]{24})\s+\/\*\s*(.+?)\s*\*\/\s*=\s*(\{)?/) {
                         # Start a new entry; include any prefix lines (comments/blank) that preceded it
                         my $entry = $prefix . $sectionLine;
@@ -241,7 +242,7 @@ exit 0;
 # 2) name = "..." inside the block
 # 3) path = "..." inside the block
 # 4) fallback: whole entry string
-# Special handling for UnifiedSourceN names: numeric compare on trailing number.
+# Natural sorting is applied to names so numeric substrings compare numerically.
 # -----------------------------------------------------------------------------
 sub sortBlocksByName($$)
 {
@@ -250,21 +251,14 @@ sub sortBlocksByName($$)
     my $bName = extract_name_from_block($b);
 
     # Handle directories vs files as in children sorting: treat items without suffix as directories
-    my $aSuffix = $1 if $aName =~ m/\.([^.]+)$/;
-    my $bSuffix = $1 if $bName =~ m/\.([^.]+)$/;
+    my $aSuffix = $1 if defined $aName && $aName =~ m/\.([^.]+)$/;
+    my $bSuffix = $1 if defined $bName && $bName =~ m/\.([^.]+)$/;
     my $aIsDirectory = !$aSuffix && !$isFile{$aName};
     my $bIsDirectory = !$bSuffix && !$isFile{$bName};
     return $bIsDirectory <=> $aIsDirectory if $aIsDirectory != $bIsDirectory;
 
-    if ($aName =~ /^UnifiedSource(\d+)/ && $bName =~ /^UnifiedSource(\d+)/) {
-        my $aNumber = $1 if $aName =~ /^UnifiedSource(\d+)/;
-        my $bNumber = $1 if $bName =~ /^UnifiedSource(\d+)/;
-        return $aNumber <=> $bNumber if $aNumber != $bNumber;
-    }
-
-    # Default: case-sensitive lexical comparison. Uncomment to enable case-insensitive:
-    # return lc($aName) cmp lc($bName) if lc($aName) ne lc($bName);
-    return $aName cmp $bName;
+    # Use natural comparison for all names.
+    return natural_cmp($aName // '', $bName // '');
 }
 
 # Extract a name from a block entry string.
@@ -291,26 +285,24 @@ sub extract_name_from_block {
 
 # -----------------------------------------------------------------------------
 # Existing comparators for array-style entries (files / children).
-# Updated regex to accept lowercase hex IDs too.
+# Updated to use natural sorting for file names.
 # -----------------------------------------------------------------------------
 sub sortChildrenByFileName($$)
 {
     my ($a, $b) = @_;
     my $aFileName = $1 if $a =~ /^\s*[A-Fa-f0-9]{24}\s+\/\*\s*(.+?)\s*\*\/,$/;
     my $bFileName = $1 if $b =~ /^\s*[A-Fa-f0-9]{24}\s+\/\*\s*(.+?)\s*\*\/,$/;
+    $aFileName //= '';
+    $bFileName //= '';
+
     my $aSuffix = $1 if $aFileName =~ m/\.([^.]+)$/;
     my $bSuffix = $1 if $bFileName =~ m/\.([^.]+)$/;
     my $aIsDirectory = !$aSuffix && !$isFile{$aFileName};
     my $bIsDirectory = !$bSuffix && !$isFile{$bFileName};
     return $bIsDirectory <=> $aIsDirectory if $aIsDirectory != $bIsDirectory;
-    if ($aFileName =~ /^UnifiedSource\d+/ && $bFileName =~ /^UnifiedSource\d+/) {
-        my $aNumber = $1 if $aFileName =~ /^UnifiedSource(\d+)/;
-        my $bNumber = $1 if $bFileName =~ /^UnifiedSource(\d+)/;
-        return $aNumber <=> $bNumber if $aNumber != $bNumber;
-    }
-    # Uncomment below line to have case-insensitive sorting.
-    # return lc($aFileName) cmp lc($bFileName) if lc($aFileName) ne lc($bFileName);
-    return $aFileName cmp $bFileName;
+
+    # Natural compare for any filenames (handles numeric substrings correctly).
+    return natural_cmp($aFileName, $bFileName);
 }
 
 sub sortFilesByFileName($$)
@@ -318,14 +310,57 @@ sub sortFilesByFileName($$)
     my ($a, $b) = @_;
     my $aFileName = $1 if $a =~ /^\s*[A-Fa-f0-9]{24}\s+\/\*\s*(.+?)\s*\*\/\s+in\s+/;
     my $bFileName = $1 if $b =~ /^\s*[A-Fa-f0-9]{24}\s+\/\*\s*(.+?)\s*\*\/\s+in\s+/;
-    if ($aFileName =~ /^UnifiedSource\d+/ && $bFileName =~ /^UnifiedSource\d+/) {
-        my $aNumber = $1 if $aFileName =~ /^UnifiedSource(\d+)/;
-        my $bNumber = $1 if $bFileName =~ /^UnifiedSource(\d+)/;
-        return $aNumber <=> $bNumber if $aNumber != $bNumber;
+    $aFileName //= '';
+    $bFileName //= '';
+
+    # Natural compare for any filenames (handles numeric substrings correctly).
+    return natural_cmp($aFileName, $bFileName);
+}
+
+# -----------------------------------------------------------------------------
+# Natural string comparator:
+# Splits strings into runs of digits and non-digits. Compares runs pairwise:
+# - If both runs are numeric, compare numerically (as integers), and if equal,
+#   shorter digit-run (fewer leading zeros) is considered smaller.
+# - Otherwise, compare lexically (case-sensitive).
+# If all common runs are equal, shorter token list sorts first (e.g. "file" < "file1").
+# -----------------------------------------------------------------------------
+sub natural_cmp {
+    my ($x, $y) = @_;
+    return 0 if $x eq $y;
+
+    # Tokenize into digit and non-digit runs. Preserve order.
+    my @xa = ($x =~ /(\d+|[^\d]+)/g);
+    my @ya = ($y =~ /(\d+|[^\d]+)/g);
+
+    while (@xa && @ya) {
+        my $pa = shift @xa;
+        my $pb = shift @ya;
+
+        if ($pa =~ /^\d+$/ && $pb =~ /^\d+$/) {
+            # Compare numerically
+            # Use integer comparison; Perl handles big ints but for safety treat as 0+ to coerce.
+            my $na = $pa + 0;
+            my $nb = $pb + 0;
+            if ($na != $nb) {
+                return $na <=> $nb;
+            }
+            # If numeric values equal (e.g. "001" vs "1"), prefer shorter digit run (fewer leading zeros)
+            if (length($pa) != length($pb)) {
+                return length($pa) <=> length($pb);
+            }
+            next; # equal numeric and equal length -> continue
+        } else {
+            # Non-numeric comparison: case-sensitive lexical compare
+            if ($pa ne $pb) {
+                return $pa cmp $pb;
+            }
+            next;
+        }
     }
-    # Uncomment below line to have case-insensitive sorting.
-    # return lc($aFileName) cmp lc($bFileName) if lc($aFileName) ne lc($bFileName);
-    return $aFileName cmp $bFileName;
+
+    # If one has remaining runs, the shorter (fewer remaining tokens) sorts first.
+    return scalar(@xa) <=> scalar(@ya);
 }
 
 # Subroutine to remove duplicate items in an array while preserving first occurrence order.
