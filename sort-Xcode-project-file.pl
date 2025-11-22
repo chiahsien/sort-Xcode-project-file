@@ -27,16 +27,19 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 # THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# Script to case-sensitive sort certain sections and arrays in Xcode project.pbxproj files.
-# Enhancements compared to original:
-# - Accepts lowercase hex object IDs (more robust)
-# - Adds sorting for "Begin ... section" blocks such as PBXFileReference, PBXBuildFile, PBXGroup,
-#   XCBuildConfiguration, PBXVariantGroup, PBXReferenceProxy, PBXContainerItemProxy, PBXTargetDependency.
-# - More robust block parsing that balances braces to support multi-line entries.
-# - Use natural sort for all file/name comparisons (so "file2" < "file10", and numeric parts are compared numerically).
+# Script to sort certain sections and arrays in Xcode project.pbxproj files.
+# Behavior and flags:
+# - Default sorting is case-sensitive (preserves original behavior).
+# - Optionally enable case-insensitive sorting with --case-insensitive.
+# - The case-insensitive flag affects both natural sorting and directory-vs-file lookups.
 #
-# NOTE: This script deliberately does NOT sort buildPhases arrays (their order is build-order-sensitive).
-# Use caution adding more automatic sorting behaviour.
+# Use with:
+#   --case-insensitive    enable case-insensitive sorting (default: disabled)
+#   --case-sensitive      explicit alias to force case-sensitive sorting
+#   -h, --help            show help
+#   -w, --no-warnings     suppress warnings
+#
+# NOTE: Build-phase order-sensitive arrays (e.g., buildPhases) are NOT sorted by this script.
 
 use strict;
 use warnings;
@@ -47,7 +50,7 @@ use File::Temp qw(tempfile);
 use Getopt::Long;
 
 # Allow list: names of "Begin ... section" sections we will parse and sort block entries for.
-# These are safe-to-sort sections (reordering entries shouldn't change Xcode behaviour).
+# These are considered safe-to-sort (reordering entries shouldn't change Xcode behaviour).
 my %sortable_sections = map { $_ => 1 } qw(
     PBXFileReference
     PBXBuildFile
@@ -62,16 +65,26 @@ my %sortable_sections = map { $_ => 1 } qw(
 
 # Some files without extensions, so they can sort with other files.
 # Otherwise, names without extensions are assumed to be groups or directories and sorted last.
+# Keep original-cased keys by default; a lowercase map is built for case-insensitive lookups.
 my %isFile = map { $_ => 1 } qw(
     create_hash_table
 );
+my %isFile_lc = map { lc($_) => 1 } keys %isFile;
 
+# Flags / options
 my $printWarnings = 1;
 my $showHelp;
 
+# Default: case-sensitive sorting. Provide --case-insensitive to enable.
+my $CASE_INSENSITIVE = 0;
+
 my $getOptionsResult = GetOptions(
-    'h|help'         => \$showHelp,
-    'w|warnings!'    => \$printWarnings,
+    'h|help'             => \$showHelp,
+    'w|warnings!'        => \$printWarnings,
+    # --case-insensitive enables case-insensitive sorting
+    'case-insensitive!'  => \$CASE_INSENSITIVE,
+    # convenience alias: --case-sensitive forces case-sensitive (sets variable to 0)
+    'case-sensitive'     => sub { $CASE_INSENSITIVE = 0 },
 );
 
 if (scalar(@ARGV) == 0 && !$showHelp) {
@@ -82,12 +95,15 @@ if (scalar(@ARGV) == 0 && !$showHelp) {
 if (!$getOptionsResult || $showHelp) {
     print STDERR <<'__END__';
 Usage: sort-Xcode-project-file.pl [options] path/to/project.pbxproj [path/to/project.pbxproj ...]
-  -h|--help           show this help message
-  -w|--[no-]warnings  show or suppress warnings (default: show warnings)
+  -h|--help               show this help message
+  -w|--[no-]warnings      show or suppress warnings (default: show warnings)
+  --case-insensitive      enable case-insensitive sorting (default: disabled)
+  --case-sensitive        explicit alias to force case-sensitive sorting
 
-This script sorts certain arrays and sections inside project.pbxproj files to
-reduce spurious diffs in version control. It preserves ordering for build-phase
-arrays that are order-sensitive (e.g. buildPhases).
+Notes:
+  - Default behavior is case-sensitive sorting (original behavior).
+  - Use --case-insensitive to enable case-insensitive natural sorting
+    (e.g. "file2" < "file10", case ignored for alphabetic parts).
 __END__
     exit 1;
 }
@@ -243,36 +259,28 @@ exit 0;
 # 3) path = "..." inside the block
 # 4) fallback: whole entry string
 # Natural sorting is applied to names so numeric substrings compare numerically.
-# -----------------------------------------------------------------------------
 #
 # Parameters:
 #   ($a, $b) - each is a string containing the full block text for a single entry.
-#             Typical input is a multi-line block starting with an object id and comment:
-#               "  0123456789abcdef01234567 /* MyFile.m */ = { ... }"
 #
 # Returns:
-#   -1, 0, 1 as per Perl comparison convention: negative if $a < $b, 0 if equal, positive if $a > $b.
-#
-# Behavior:
-#   - Extracts a sorting key using extract_name_from_block() for each block.
-#   - Preserves the existing heuristics that treat items without file suffix as "directories"
-#     (these are sorted after files unless listed in %isFile).
-#   - Uses natural_cmp() which implements natural (human) ordering: numeric runs compared numerically.
-#   - Case-sensitive by default.
+#   -1, 0, 1 as per Perl comparison convention.
+# -----------------------------------------------------------------------------
 sub sortBlocksByName($$)
 {
     my ($a, $b) = @_;
     my $aName = extract_name_from_block($a);
     my $bName = extract_name_from_block($b);
 
-    # Handle directories vs files as in children sorting: treat items without suffix as directories
+    # Handle directories vs files as in children sorting: treat items without suffix as directories.
+    # When case-insensitive mode is enabled, normalize the lookup key for %isFile.
     my $aSuffix = $1 if defined $aName && $aName =~ m/\.([^.]+)$/;
     my $bSuffix = $1 if defined $bName && $bName =~ m/\.([^.]+)$/;
-    my $aIsDirectory = !$aSuffix && !$isFile{$aName};
-    my $bIsDirectory = !$bSuffix && !$isFile{$bName};
+    my $aIsDirectory = !$aSuffix && !($CASE_INSENSITIVE ? $isFile_lc{lc($aName)} : $isFile{$aName});
+    my $bIsDirectory = !$bSuffix && !($CASE_INSENSITIVE ? $isFile_lc{lc($bName)} : $isFile{$bName});
     return $bIsDirectory <=> $aIsDirectory if $aIsDirectory != $bIsDirectory;
 
-    # Use natural comparison for all names.
+    # Use natural comparison for all names (respects $CASE_INSENSITIVE).
     return natural_cmp($aName // '', $bName // '');
 }
 
@@ -291,12 +299,7 @@ sub sortBlocksByName($$)
 #     2) name = "..." inside the block
 #     3) path = "..." inside the block
 #     4) first non-empty line of the block
-#   If none matched, returns the original block string.
-#
-# Notes / assumptions:
-#   - Assumes object ids are common Xcode-style 24-hex characters (case-insensitive).
-#   - Uses non-greedy comment capture to avoid spanning beyond the intended comment.
-#   - Designed to be forgiving with whitespace and formatting differences.
+# -----------------------------------------------------------------------------
 sub extract_name_from_block {
     my ($block) = @_;
     # Try to find comment after object id: "/* Name */"
@@ -341,8 +344,8 @@ sub sortChildrenByFileName($$)
 
     my $aSuffix = $1 if $aFileName =~ m/\.([^.]+)$/;
     my $bSuffix = $1 if $bFileName =~ m/\.([^.]+)$/;
-    my $aIsDirectory = !$aSuffix && !$isFile{$aFileName};
-    my $bIsDirectory = !$bSuffix && !$isFile{$bFileName};
+    my $aIsDirectory = !$aSuffix && !($CASE_INSENSITIVE ? $isFile_lc{lc($aFileName)} : $isFile{$aFileName});
+    my $bIsDirectory = !$bSuffix && !($CASE_INSENSITIVE ? $isFile_lc{lc($bFileName)} : $isFile{$bFileName});
     return $bIsDirectory <=> $aIsDirectory if $aIsDirectory != $bIsDirectory;
 
     # Natural compare for any filenames (handles numeric substrings correctly).
@@ -378,9 +381,9 @@ sub sortFilesByFileName($$)
 # Splits strings into runs of digits and non-digits. Compares runs pairwise:
 # - If both runs are numeric, compare numerically (as integers), and if equal,
 #   shorter digit-run (fewer leading zeros) is considered smaller.
-# - Otherwise, compare lexically (case-sensitive).
-# If all common runs are equal, the one with fewer remaining tokens sorts first
-# (e.g. "file" < "file1").
+# - Otherwise, compare lexically. If case-insensitive mode is enabled, non-digit
+#   runs are compared in lowercase.
+# If all common runs are equal, the one with fewer remaining tokens sorts first.
 #
 # Parameters:
 #   $x, $y - two strings to compare
@@ -390,6 +393,8 @@ sub sortFilesByFileName($$)
 # -----------------------------------------------------------------------------
 sub natural_cmp {
     my ($x, $y) = @_;
+    $x //= '';
+    $y //= '';
     return 0 if $x eq $y;
 
     # Tokenize into digit and non-digit runs. Preserve order.
@@ -402,7 +407,6 @@ sub natural_cmp {
 
         if ($pa =~ /^\d+$/ && $pb =~ /^\d+$/) {
             # Compare numerically
-            # Use integer comparison; Perl handles big ints but for safety treat as 0+ to coerce.
             my $na = $pa + 0;
             my $nb = $pb + 0;
             if ($na != $nb) {
@@ -414,9 +418,17 @@ sub natural_cmp {
             }
             next; # equal numeric and equal length -> continue
         } else {
-            # Non-numeric comparison: case-sensitive lexical compare
-            if ($pa ne $pb) {
-                return $pa cmp $pb;
+            # Non-numeric comparison:
+            if ($CASE_INSENSITIVE) {
+                my $la = lc($pa);
+                my $lb = lc($pb);
+                if ($la ne $lb) {
+                    return $la cmp $lb;
+                }
+            } else {
+                if ($pa ne $pb) {
+                    return $pa cmp $pb;
+                }
             }
             next;
         }
