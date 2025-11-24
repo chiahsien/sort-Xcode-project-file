@@ -65,7 +65,7 @@ use constant XCODE_OBJECT_ID => qr/[A-Fa-f0-9]{24}/;
 #   buildConfigurations = (
 #   targets = (
 my $REGEX_ARRAY_START = qr/^
-    (\s*)                           # capture leading whitespace (indentation level)
+    (\s*)                           # capture leading whitespace - indentation level
     (children|buildConfigurations|targets|packageProductDependencies|packageReferences)
     \s* = \s* \( \s*$               # equals sign, opening paren, optional whitespace
 /x;
@@ -73,17 +73,17 @@ my $REGEX_ARRAY_START = qr/^
 # Matches files array declaration:
 #   files = (
 my $REGEX_FILES_ARRAY = qr/^
-    (\s*)                           # capture leading whitespace (indentation level)
-    files \s* = \s* \( \s*$         # "files", equals, opening paren
+    (\s*)                           # capture leading whitespace - indentation level
+    files \s* = \s* \( \s*$         # files keyword, equals, opening paren
 /x;
 
 # Matches child/target/config entries in arrays:
 #   A1B2C3D4E5F6789012345678 /* AppDelegate.m */,
 my $REGEX_CHILD_ENTRY = qr/^
     \s*                             # optional leading whitespace
-    [A-Fa-f0-9]{24}                 # Xcode object ID (24 hex chars)
+    [A-Fa-f0-9]{24}                 # Xcode object ID - 24 hex chars
     \s+ \/\* \s*                    # space and comment start
-    (.+?)                           # capture filename/name (non-greedy)
+    (.+?)                           # capture filename or name - non-greedy
     \s* \*\/ ,                      # comment end and trailing comma
     $                               # end of line
 /x;
@@ -92,10 +92,10 @@ my $REGEX_CHILD_ENTRY = qr/^
 #   A1B2C3D4E5F6789012345678 /* AppDelegate.m in Sources */,
 my $REGEX_FILE_ENTRY = qr/^
     \s*                             # optional leading whitespace
-    [A-Fa-f0-9]{24}                 # Xcode object ID (24 hex chars)
+    [A-Fa-f0-9]{24}                 # Xcode object ID - 24 hex chars
     \s+ \/\* \s*                    # space and comment start
-    (.+?)                           # capture filename (non-greedy)
-    \s* \*\/ \s+ in \s+             # comment end, "in", and build phase follows
+    (.+?)                           # capture filename - non-greedy
+    \s* \*\/ \s+ in \s+             # comment end, in keyword, and build phase follows
 /x;
 
 # Matches block entry declarations (single or multi-line):
@@ -103,20 +103,20 @@ my $REGEX_FILE_ENTRY = qr/^
 #   A1B2C3D4E5F6789012345678 /* Debug */ = {
 my $REGEX_BLOCK_ENTRY = qr/^
     \s*                             # optional leading whitespace
-    ([A-Fa-f0-9]{24})               # capture object ID (24 hex chars)
+    ([A-Fa-f0-9]{24})               # capture object ID - 24 hex chars
     \s+ \/\* \s*                    # space and comment start
-    (.+?)                           # capture name/description (non-greedy)
+    (.+?)                           # capture name or description - non-greedy
     \s* \*\/ \s* = \s*              # comment end, equals sign
-    (\{)?                           # optional opening brace (captured for multi-line detection)
-/mx;  # m flag: ^ and $ match line boundaries within string
+    (\{)?                           # optional opening brace - captured for multi-line detection
+/mx;  # m flag: caret and dollar match line boundaries within string
 
 # Matches block entry header with comment:
 #   A1B2C3D4E5F6789012345678 /* Name */ =
 my $REGEX_BLOCK_NAME_COMMENT = qr/^
     \s*                             # optional leading whitespace
-    [A-Fa-f0-9]{24}                 # Xcode object ID (24 hex chars)
+    [A-Fa-f0-9]{24}                 # Xcode object ID - 24 hex chars
     \s+ \/\* \s*                    # space and comment start
-    (.+?)                           # capture name (non-greedy)
+    (.+?)                           # capture name - non-greedy
     \s* \*\/ \s* =                  # comment end and equals sign
 /mx;
 
