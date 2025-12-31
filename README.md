@@ -4,19 +4,16 @@ This Perl script is a fork from [sort-Xcode-project-file](https://github.com/Web
 
 ## What's different
 
-- Bypass `PBXFrameworksBuildPhase` section because this order is important for some projects.
-- Sort top-level directories and files in `mainGroup`.
-- Sort `targets` list in project.
-- Sort `packageProductDependencies` and `packageReferences` lists in project.
-- Sort `buildConfigurations` list in each target.
-- Sort several additional whole "Begin ... section" blocks such as:
-  - `PBXFileReference`, `PBXBuildFile`, `PBXGroup`, `PBXVariantGroup`,
-  - `PBXReferenceProxy`, `PBXContainerItemProxy`, `PBXTargetDependency`,
-  - `XCBuildConfiguration`, `XCConfigurationList`.
-- Case-sensitive sorting by default (preserves original behavior).
-- Option to enable case-insensitive sorting: `--case-insensitive`.
-- Remove duplicate references automatically.
-- Natural (human) sorting for names/filenames is applied (so numeric substrings are compared numerically, e.g. `file2` < `file10`).
+- Bypass `PBXFrameworksBuildPhase` section (preserve original order, important for some projects)
+- Sort `children` arrays throughout the project (directories before files)
+- Sort `files` arrays in build phases
+- Sort `targets` list in project
+- Sort `packageProductDependencies` and `packageReferences` lists in project
+- Sort `buildConfigurations` list in each target
+- Case-sensitive sorting by default (preserves original behavior)
+- Option to enable case-insensitive sorting: `--case-insensitive`
+- Remove duplicate references automatically
+- Natural (human) sorting for names/filenames (e.g., `file2` < `file10`)
 
 ## Usage
 
@@ -28,7 +25,7 @@ Common options supported by the script:
 - `--case-insensitive` : enable case-insensitive sorting (default is case-sensitive)
 - `--case-sensitive` : explicit alias to force case-sensitive sorting
 - `-h`, `--help` : show help
-- `-w`, `--no-warnings` : suppress warnings
+- `-w`, `--[no-]warnings` : show or suppress warnings (default: show)
 
 You can use it to sort Xcode project file before committing it to git version control. Sorting project file can decrease the merging conflict possibility.
 
@@ -72,10 +69,6 @@ Put following line into `.gitattributes` file then commit it.
 ```
 *.pbxproj merge=union
 ```
-
-## To-Do
-
-- [ ] Command line option to bypass `PBXFrameworksBuildPhase` section or not.
 
 ## License
 

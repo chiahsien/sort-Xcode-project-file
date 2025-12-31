@@ -49,13 +49,6 @@ use File::Spec;
 use File::Temp qw(tempfile);
 use Getopt::Long;
 
-# Maximum iterations when parsing brace-balanced blocks to prevent infinite loops
-use constant MAX_BRACE_ITERATIONS => 10000;
-
-# Xcode object ID format: 24 hexadecimal characters
-# Example: A1B2C3D4E5F6789012345678
-use constant XCODE_OBJECT_ID => qr/[A-Fa-f0-9]{24}/;
-
 # -----------------------------------------------------------------------------
 # Compiled regex patterns for better performance and readability
 # -----------------------------------------------------------------------------
@@ -74,7 +67,7 @@ my $REGEX_ARRAY_START = qr/^
 #   files = (
 my $REGEX_FILES_ARRAY = qr/^
     (\s*)                           # capture leading whitespace - indentation level
-    files \s* = \s* \( \s*$         # files keyword, equals, opening paren
+    files \s* = \s* \( \s*$          # files keyword, equals, opening paren
 /x;
 
 # Matches child/target/config entries in arrays:
@@ -97,51 +90,6 @@ my $REGEX_FILE_ENTRY = qr/^
     (.+?)                           # capture filename - non-greedy
     \s* \*\/ \s+ in \s+             # comment end, in keyword, and build phase follows
 /x;
-
-# Matches block entry declarations (single or multi-line):
-#   A1B2C3D4E5F6789012345678 /* AppDelegate.m */ = {
-#   A1B2C3D4E5F6789012345678 /* Debug */ = {
-my $REGEX_BLOCK_ENTRY = qr/^
-    \s*                             # optional leading whitespace
-    ([A-Fa-f0-9]{24})               # capture object ID - 24 hex chars
-    \s+ \/\* \s*                    # space and comment start
-    (.+?)                           # capture name or description - non-greedy
-    \s* \*\/ \s* = \s*              # comment end, equals sign
-    (\{)?                           # optional opening brace - captured for multi-line detection
-/mx;  # m flag: caret and dollar match line boundaries within string
-
-# Matches block entry header with comment:
-#   A1B2C3D4E5F6789012345678 /* Name */ =
-my $REGEX_BLOCK_NAME_COMMENT = qr/^
-    \s*                             # optional leading whitespace
-    [A-Fa-f0-9]{24}                 # Xcode object ID - 24 hex chars
-    \s+ \/\* \s*                    # space and comment start
-    (.+?)                           # capture name - non-greedy
-    \s* \*\/ \s* =                  # comment end and equals sign
-/mx;
-
-# Allow list: names of "Begin ... section" sections we will parse and sort block entries for.
-# These are considered safe-to-sort (reordering entries shouldn't change Xcode behaviour).
-#
-# Why these sections are sortable:
-# - They represent declarative content (file references, configurations, groups)
-# - Xcode references items by ID, not by position in file
-# - Sorting helps with version control and reduces merge conflicts
-#
-# Sections NOT included (and why):
-# - PBXSourcesBuildPhase, PBXFrameworksBuildPhase: order affects build/link order
-# - buildPhases arrays: compilation order matters
-my %sortable_sections = map { $_ => 1 } qw(
-    PBXFileReference
-    PBXBuildFile
-    PBXGroup
-    PBXVariantGroup
-    PBXReferenceProxy
-    PBXContainerItemProxy
-    PBXTargetDependency
-    XCBuildConfiguration
-    XCConfigurationList
-);
 
 # Files without extensions that should be treated as files (not directories).
 #
@@ -188,7 +136,6 @@ Usage: sort-Xcode-project-file.pl [options] path/to/project.pbxproj [path/to/pro
 Notes:
   - Default behavior is case-sensitive sorting (original behavior).
   - Use --case-insensitive to enable case-insensitive natural sorting
-    (e.g. "file2" < "file10", case ignored for alphabetic parts).
 __END__
     exit 1;
 }
@@ -203,137 +150,97 @@ for my $projectFile (@ARGV) {
         next;
     }
 
-    # Use CLEANUP => 1 for automatic temp file cleanup on normal and abnormal exits
-    my ($OUT, $tempFileName) = tempfile(
-        basename($projectFile) . "-XXXXXXXX",
-        DIR => dirname($projectFile),
-        UNLINK => 0,  # We'll handle deletion manually for better control
-    );
-
-    # Process file in eval block for proper error handling and cleanup
-    eval {
-        open(my $IN, '<', $projectFile) or die "Could not open $projectFile: $!";
-
-        while (my $line = <$IN>) {
-            # Check for read errors
-            if (!defined $line && !eof($IN)) {
-                die "Error reading from $projectFile: $!";
-            }
-            last unless defined $line;
-
-            # Sort files section (array named files = (...); ).
-            if ($line =~ $REGEX_FILES_ARRAY) {
-                my $indent = $1;
-                print $OUT $line or die "Error writing to $tempFileName: $!";
-
-                my $endMarker = $indent . ");";
-                my @files = read_array_entries($IN, $endMarker, $projectFile, 'files');
-
-                # Remove duplicate lines then sort.
-                my @uniqueLines = uniq(@files);
-                print $OUT sort sortFilesByFileName @uniqueLines or die "Error writing to $tempFileName: $!";
-                print $OUT $endMarker or die "Error writing to $tempFileName: $!";
-            }
-            # Sort children, buildConfigurations, targets, packageProductDependencies, and packageReferences sections (array-form).
-            elsif ($line =~ $REGEX_ARRAY_START) {
-                my $indent = $1;
-                my $arrayName = $2;
-                print $OUT $line or die "Error writing to $tempFileName: $!";
-
-                my $endMarker = $indent . ");";
-                my @children = read_array_entries($IN, $endMarker, $projectFile, $arrayName);
-
-                # Remove duplicate lines then sort.
-                my @uniqueLines = uniq(@children);
-                print $OUT sort sortChildrenByFileName @uniqueLines or die "Error writing to $tempFileName: $!";
-                print $OUT $endMarker or die "Error writing to $tempFileName: $!";
-            }
-            # Handle "Begin ... section" blocks; if section is in our sortable list, parse entries and sort by name
-            elsif ($line =~ /Begin\s+(\S+)\s+section/) {
-                my $sectionName = $1;
-                print $OUT $line or die "Error writing to $tempFileName: $!";
-
-                # Read everything until the corresponding End ... section line
-                if ($sortable_sections{$sectionName}) {
-                    # We will parse entries inside this section and sort them.
-                    my @entries;
-                    reset_block_prefix();  # Ensure clean state for new section
-
-                    # Parse all entries in this section
-                    while (my $sectionLine = <$IN>) {
-                        if (!defined $sectionLine) {
-                            die "Unexpected end of file while parsing $sectionName section in $projectFile";
-                        }
-
-                        # If we reached the End ... section, break and print end marker later
-                        if ($sectionLine =~ /End\s+\Q$sectionName\E\s+section/) {
-                            # Filter out any undefined or empty entries, remove duplicates, then sort
-                            my @validEntries = grep { defined $_ && $_ ne '' } @entries;
-                            my @unique = uniq(@validEntries);
-                            print $OUT sort sortBlocksByName @unique or die "Error writing to $tempFileName: $!";
-                            print $OUT $sectionLine or die "Error writing to $tempFileName: $!";
-                            last;
-                        }
-
-                        # Try to parse as a block entry
-                        my $entry = parse_block_entry($IN, $sectionLine, $projectFile, $tempFileName);
-                        if (defined $entry && $entry ne '') {
-                            push @entries, $entry;
-                        }
-                    }
-                } else {
-                    # Not a section we automatically sort: passthrough until End ... section (preserve original order)
-                    while (my $sectionLine = <$IN>) {
-                        if (!defined $sectionLine) {
-                            die "Unexpected end of file while passing through $sectionName section in $projectFile";
-                        }
-                        print $OUT $sectionLine or die "Error writing to $tempFileName: $!";
-                        if ($sectionLine =~ /End\s+\Q$sectionName\E\s+section/) {
-                            last;
-                        }
-                    }
-                }
-            }
-            # Ignore whole PBXFrameworksBuildPhase section (preserve original ordering)
-            elsif ($line =~ /^(.*)Begin PBXFrameworksBuildPhase section(.*)$/) {
-                print $OUT $line or die "Error writing to $tempFileName: $!";
-                while (my $ignoreLine = <$IN>) {
-                    if (!defined $ignoreLine) {
-                        die "Unexpected end of file while parsing PBXFrameworksBuildPhase section in $projectFile";
-                    }
-                    print $OUT $ignoreLine or die "Error writing to $tempFileName: $!";
-                    if ($ignoreLine =~ /^(.*)End PBXFrameworksBuildPhase section(.*)$/) {
-                        last;
-                    }
-                }
-            }
-            # Other lines: passthrough
-            else {
-                print $OUT $line or die "Error writing to $tempFileName: $!";
-            }
-        }
-
-        close($IN) or die "Error closing $projectFile: $!";
-        close($OUT) or die "Error closing $tempFileName: $!";
-
-        # Atomically replace original file
-        unlink($projectFile) or die "Could not delete $projectFile: $!";
-        rename($tempFileName, $projectFile) or die "Could not rename $tempFileName to $projectFile: $!";
-    };
-
-    # Handle any errors during processing
-    if ($@) {
-        my $error = $@;
-        # Attempt cleanup
-        close($OUT) if defined fileno($OUT);
-        if (-e $tempFileName) {
-            unlink($tempFileName) or warn "Could not clean up temporary file $tempFileName: $!";
-        }
-        die "Failed to process $projectFile: $error";
-    }
+    sort_project_file($projectFile);
 }
 
 exit 0;
+
+# -----------------------------------------------------------------------------
+# Sort Xcode project file in-place
+#
+# Purpose:
+#   Read project.pbxproj file, sort specific arrays (children, files, etc.),
+#   and write back sorted content. Reduces merge conflicts in version control.
+#
+# Sorting rules:
+#   - children arrays: sort by filename, directories before files
+#   - files arrays: sort by filename, no directory priority
+#   - PBXFrameworksBuildPhase: preserve original order (not sorted)
+#   - Removes duplicate entries before sorting
+#
+# Parameters:
+#   $projectFile - path to project.pbxproj file
+#
+# Dies on error with descriptive message
+# -----------------------------------------------------------------------------
+sub sort_project_file {
+    my ($projectFile) = @_;
+
+    # Read entire file content
+    my $content = read_file($projectFile);
+    my @lines = split(/\n/, $content, -1);
+
+    my @output;
+    my $i = 0;
+
+    while ($i < @lines) {
+        my $line = $lines[$i];
+
+        # Sort files section (array named files = (...); ).
+        if ($line =~ $REGEX_FILES_ARRAY) {
+            my $indent = $1;
+            push @output, $line;
+            $i++;
+
+            my $endMarker = $indent . ");";
+            my ($arrayLines, $endLine, $nextIndex) = read_array_entries(\@lines, $i, $endMarker, $projectFile, 'files');
+            $i = $nextIndex;
+
+            # Remove duplicate lines then sort.
+            my @uniqueLines = uniq(@$arrayLines);
+            push @output, sort sortFilesByFileName @uniqueLines;
+            push @output, $endLine;
+        }
+        # Sort children, buildConfigurations, targets, packageProductDependencies, and packageReferences sections (array-form).
+        elsif ($line =~ $REGEX_ARRAY_START) {
+            my $indent = $1;
+            my $arrayName = $2;
+            push @output, $line;
+            $i++;
+
+            my $endMarker = $indent . ");";
+            my ($arrayLines, $endLine, $nextIndex) = read_array_entries(\@lines, $i, $endMarker, $projectFile, $arrayName);
+            $i = $nextIndex;
+
+            # Remove duplicate lines then sort.
+            my @uniqueLines = uniq(@$arrayLines);
+            push @output, sort sortChildrenByFileName @uniqueLines;
+            push @output, $endLine;
+        }
+        # Ignore whole PBXFrameworksBuildPhase section (preserve original ordering)
+        elsif ($line =~ /^(.*)Begin PBXFrameworksBuildPhase section(.*)$/) {
+            push @output, $line;
+            $i++;
+
+            while ($i < @lines) {
+                my $frameworkLine = $lines[$i];
+                push @output, $frameworkLine;
+                $i++;
+                if ($frameworkLine =~ /^(.*)End PBXFrameworksBuildPhase section(.*)$/) {
+                    last;
+                }
+            }
+        }
+        # Other lines: passthrough
+        else {
+            push @output, $line;
+            $i++;
+        }
+    }
+
+    # Write sorted content back
+    write_file($projectFile, join("\n", @output));
+}
 
 # -----------------------------------------------------------------------------
 # Read array entries until end marker is found
@@ -343,223 +250,128 @@ exit 0;
 #   the closing marker is found, with proper error handling.
 #
 # Parameters:
-#   $IN          - input file handle
+#   $lines       - reference to array of all lines
+#   $startIndex  - index to start reading from
 #   $endMarker   - the closing marker to look for (e.g., "    );")
 #   $projectFile - project file name (for error messages)
 #   $arrayName   - name of array being parsed (for error messages)
 #
 # Returns:
-#   Array of lines read (not including the end marker)
-#   Updates $endMarker reference to include actual line read
+#   ($arrayLines, $endLine, $nextIndex)
+#   - $arrayLines: array reference of lines read (not including end marker)
+#   - $endLine: the actual end marker line found
+#   - $nextIndex: index of next line to process after end marker
 # -----------------------------------------------------------------------------
 sub read_array_entries {
-    my ($IN, $endMarker, $projectFile, $arrayName) = @_;
+    my ($lines, $startIndex, $endMarker, $projectFile, $arrayName) = @_;
     my @entries;
+    my $i = $startIndex;
 
-    while (my $line = <$IN>) {
-        if (!defined $line) {
-            die "Unexpected end of file while parsing $arrayName array in $projectFile";
-        }
+    while ($i < @$lines) {
+        my $line = $lines->[$i];
         if ($line =~ /^\Q$endMarker\E\s*$/) {
-            $_[1] = $line;  # Update the end marker to the actual line read
-            last;
+            return (\@entries, $line, $i + 1);
         }
         push @entries, $line;
+        $i++;
     }
 
-    return @entries;
+    die "Unexpected end of file while parsing $arrayName array in $projectFile";
 }
 
 # -----------------------------------------------------------------------------
-# Parse a block entry from the input stream
+# Extract filename from a line using a regex pattern
 #
 # Purpose:
-#   Extract a complete block entry, handling both single-line and multi-line
-#   (brace-balanced) entries. Also preserves preceding comments/blank lines.
+#   Common helper to extract filename from comment portions of Xcode entries.
 #
 # Parameters:
-#   $IN           - input file handle
-#   $sectionLine  - current line being processed
-#   $projectFile  - project file name (for error messages)
-#   $tempFileName - temp file name (for error messages)
+#   $line    - line to parse
+#   $pattern - compiled regex pattern with a capture group for filename
 #
 # Returns:
-#   Complete entry string if this is a block entry, undef otherwise
+#   Extracted filename string, or empty string if pattern doesn't match
 #
-# Note:
-#   Uses a package-level variable to maintain prefix state between calls
+# Examples:
+#   extract_filename("  012345... /* Foo.m */,", $REGEX_CHILD_ENTRY) => "Foo.m"
+#   extract_filename("  012345... /* Bar.h in Headers */,", $REGEX_FILE_ENTRY) => "Bar.h"
 # -----------------------------------------------------------------------------
-{
-    # Package-level variable to accumulate prefix lines between entries
-    # Scoped to this block to prevent access from outside
-    my $prefix = '';
-
-    sub parse_block_entry {
-        my ($IN, $sectionLine, $projectFile, $tempFileName) = @_;
-
-        # Detect a block entry that begins with an object id comment
-        if ($sectionLine =~ $REGEX_BLOCK_ENTRY) {
-            my ($objectId, $name, $hasBrace) = ($1, $2, $3);
-
-            # Start a new entry; include any prefix lines (comments/blank) that preceded it
-            my $entry = $prefix . $sectionLine;
-            $prefix = '';  # Reset prefix for next entry
-
-            # If there's an opening brace, the entry may be multi-line. Balance braces.
-            if (defined $hasBrace) {
-                my $braceCount = count_braces($sectionLine);
-                my $iterations = 0;
-
-                while ($braceCount > 0) {
-                    # Safety check: prevent infinite loop on malformed files
-                    if (++$iterations > MAX_BRACE_ITERATIONS) {
-                        die "Exceeded maximum iterations ($iterations) while parsing brace-balanced block in $projectFile. File may be malformed.";
-                    }
-
-                    my $nextLine = <$IN>;
-                    if (!defined $nextLine) {
-                        die "Unexpected end of file while parsing brace-balanced block in $projectFile (unmatched braces)";
-                    }
-
-                    $entry .= $nextLine;
-                    $braceCount += count_braces($nextLine);
-                }
-            }
-
-            return $entry;
-        } else {
-            # Not the start of an entry: accumulate into prefix to attach to next entry,
-            # preserving comments and spacing that belong to the following entry.
-            $prefix .= $sectionLine;
-            return;  # Explicitly return undef for consistency
-        }
-    }
-
-    # Helper sub to reset prefix state (useful when starting a new section)
-    sub reset_block_prefix {
-        $prefix = '';
-    }
+sub extract_filename {
+    my ($line, $pattern) = @_;
+    return $line =~ $pattern ? $1 : '';
 }
 
 # -----------------------------------------------------------------------------
-# Count net braces in a line (opening braces minus closing braces)
-#
-# Parameters:
-#   $line - line of text to analyze
-#
-# Returns:
-#   Integer: positive if more opening braces, negative if more closing braces
-# -----------------------------------------------------------------------------
-sub count_braces {
-    my ($line) = @_;
-    my $open = () = $line =~ /\{/g;
-    my $close = () = $line =~ /\}/g;
-    return $open - $close;
-}
-
-# -----------------------------------------------------------------------------
-# Comparator used to sort block entries (Begin ... section entries).
-# Tries to extract a human-friendly name for sorting:
-# 1) comment after object id: "/* Name */"
-# 2) name = "..." inside the block
-# 3) path = "..." inside the block
-# 4) fallback: whole entry string
-# Natural sorting is applied to names so numeric substrings compare numerically.
-#
-# Parameters:
-#   ($a, $b) - each is a string containing the full block text for a single entry.
-#
-# Returns:
-#   -1, 0, 1 as per Perl comparison convention.
-# -----------------------------------------------------------------------------
-sub sortBlocksByName($)
-{
-    my ($a, $b) = @_;
-    my $aName = extract_name_from_block($a);
-    my $bName = extract_name_from_block($b);
-
-    # Handle directories vs files as in children sorting: treat items without suffix as directories.
-    # When case-insensitive mode is enabled, normalize the lookup key for %isFile.
-    my $aSuffix = (defined $aName && $aName =~ m/\.([^.]+)$/) ? $1 : undef;
-    my $bSuffix = (defined $bName && $bName =~ m/\.([^.]+)$/) ? $1 : undef;
-
-    my $aIsDirectory = !defined $aSuffix && !($CASE_INSENSITIVE ? $isFile_lc{lc($aName // '')} : $isFile{$aName // ''});
-    my $bIsDirectory = !defined $bSuffix && !($CASE_INSENSITIVE ? $isFile_lc{lc($bName // '')} : $isFile{$bName // ''});
-    return $bIsDirectory <=> $aIsDirectory if $aIsDirectory != $bIsDirectory;
-
-    # Use natural comparison for all names (respects $CASE_INSENSITIVE).
-    return natural_cmp($aName // '', $bName // '');
-}
-
-# -----------------------------------------------------------------------------
-# Extract a name from a block entry string.
+# Check if a filename represents a directory
 #
 # Purpose:
-#   Produce a human-friendly key for sorting a PBX block entry.
+#   Determine if a filename should be treated as a directory based on:
+#   1. Lack of file extension
+#   2. Not being in the "known files without extensions" list
 #
 # Parameters:
-#   $block - full text of a block entry (may be single-line or multi-line).
+#   $fileName - filename to check
 #
 # Returns:
-#   A string representing the extracted name/key. The search order is:
-#     1) comment after object id: "/* Name */" (preferred)
-#     2) name = "..." inside the block
-#     3) path = "..." inside the block
-#     4) first non-empty line of the block
+#   1 if filename represents a directory, 0 otherwise
+#
+# Examples:
+#   is_directory("MyFolder")           => 1
+#   is_directory("MyFile.m")           => 0
+#   is_directory("create_hash_table")  => 0 (known file without extension)
+#
+# Global Variables:
+#   $CASE_INSENSITIVE - affects lookup in %isFile hash
+#   %isFile           - case-sensitive known files list
+#   %isFile_lc        - case-insensitive known files list
 # -----------------------------------------------------------------------------
-sub extract_name_from_block {
-    my ($block) = @_;
+sub is_directory {
+    my ($fileName) = @_;
 
-    # Handle undefined or empty blocks
-    return '' if !defined $block || $block eq '';
+    # Extract file extension (suffix after last dot)
+    my $hasSuffix = $fileName =~ m/\.([^.]+)$/;
 
-    # Try to find comment after object id: "/* Name */"
-    if ($block =~ $REGEX_BLOCK_NAME_COMMENT) {
-        return $1;
-    }
+    # If it has an extension, it's a file
+    return 0 if $hasSuffix;
 
-    # Fallback: look for name = "..."
-    if ($block =~ /name \s* = \s* "(.*?)"/mx) {
-        return $1;
-    }
+    # No extension: check if it's a known file
+    my $isKnownFile = $CASE_INSENSITIVE
+        ? $isFile_lc{lc($fileName)}
+        : $isFile{$fileName};
 
-    # Fallback: look for path = "..."
-    if ($block =~ /path \s* = \s* "(.*?)"/mx) {
-        return $1;
-    }
-
-    # Last resort: return the first non-whitespace line trimmed
-    if ($block =~ /^\s*(\S.*)$/m) {
-        return $1;
-    }
-
-    return $block;
+    # If it's a known file, it's not a directory
+    return !$isKnownFile;
 }
 
 # sortChildrenByFileName:
+#
+# Purpose:
+#   Comparator for sorting entries in children, buildConfigurations, targets,
+#   packageProductDependencies, and packageReferences arrays.
+#
 # Parameters:
-#   ($a, $b) - each is a single line string representing an entry within a
-#              "children = ( ... );" or similar array. Typical form:
+#   ($a, $b) - each is a single line string representing an entry. Typical form:
 #                "        012345... /* Foo.m */,"
 #
 # Returns:
 #   -1, 0, 1 following Perl comparison semantics.
 #
-# Behavior:
-#   - Extracts the filename from the comment portion of the entry.
-#   - Applies directory-vs-file heuristic as in the original script.
-#   - Uses natural_cmp() for full natural ordering (numeric parts compared numerically).
-sub sortChildrenByFileName($)
+# Sorting behavior:
+#   1. Directories sort before files
+#   2. Within same type (dir/file), uses natural sorting on filename
+#
+# Examples:
+#   "Models/" < "AppDelegate.m"  (directory before file)
+#   "file2.m" < "file10.m"       (natural sort: 2 < 10)
+sub sortChildrenByFileName($$)
 {
     my ($a, $b) = @_;
 
-    my $aFileName = $a =~ $REGEX_CHILD_ENTRY ? $1 : '';
-    my $bFileName = $b =~ $REGEX_CHILD_ENTRY ? $1 : '';
+    my $aFileName = extract_filename($a, $REGEX_CHILD_ENTRY);
+    my $bFileName = extract_filename($b, $REGEX_CHILD_ENTRY);
 
-    my $aSuffix = $1 if $aFileName =~ m/\.([^.]+)$/;
-    my $bSuffix = $1 if $bFileName =~ m/\.([^.]+)$/;
-    my $aIsDirectory = !$aSuffix && !($CASE_INSENSITIVE ? $isFile_lc{lc($aFileName)} : $isFile{$aFileName});
-    my $bIsDirectory = !$bSuffix && !($CASE_INSENSITIVE ? $isFile_lc{lc($bFileName)} : $isFile{$bFileName});
+    my $aIsDirectory = is_directory($aFileName);
+    my $bIsDirectory = is_directory($bFileName);
     return $bIsDirectory <=> $aIsDirectory if $aIsDirectory != $bIsDirectory;
 
     # Natural compare for any filenames (handles numeric substrings correctly).
@@ -567,24 +379,30 @@ sub sortChildrenByFileName($)
 }
 
 # sortFilesByFileName:
+#
+# Purpose:
+#   Comparator for sorting entries in the files array.
+#
 # Parameters:
-#   ($a, $b) - each is a single line string representing an entry within a
-#              "files = ( ... );" array. Typical form:
+#   ($a, $b) - each is a single line string representing a file entry. Typical form:
 #                "        012345... /* Foo.m in Sources */,"
 #
 # Returns:
 #   -1, 0, 1 following Perl comparison semantics.
 #
-# Behavior:
-#   - Extracts the filename from the comment portion before " in ".
-#   - Uses natural_cmp() for natural ordering.
+# Sorting behavior:
+#   - Extracts filename from comment (text before " in BuildPhase")
+#   - Uses natural sorting on filename (no directory priority)
+#
+# Note:
+#   Unlike sortChildrenByFileName, this does NOT prioritize directories,
+#   as files arrays typically don't contain directory entries.
 sub sortFilesByFileName($$)
 {
     my ($a, $b) = @_;
-    my $aFileName = $1 if $a =~ /^\s*[A-Fa-f0-9]{24}\s+\/\*\s*(.+?)\s*\*\/\s+in\s+/;
-    my $bFileName = $1 if $b =~ /^\s*[A-Fa-f0-9]{24}\s+\/\*\s*(.+?)\s*\*\/\s+in\s+/;
-    $aFileName //= '';
-    $bFileName //= '';
+
+    my $aFileName = extract_filename($a, $REGEX_FILE_ENTRY);
+    my $bFileName = extract_filename($b, $REGEX_FILE_ENTRY);
 
     # Natural compare for any filenames (handles numeric substrings correctly).
     return natural_cmp($aFileName, $bFileName);
@@ -637,37 +455,37 @@ sub natural_cmp {
 
     # Tokenize into digit and non-digit runs. Preserve order.
     # Example: "abc123def45" -> ("abc", "123", "def", "45")
-    my @xa = ($x =~ /(\d+|[^\d]+)/g);
-    my @ya = ($y =~ /(\d+|[^\d]+)/g);
+    my @tokens_x = ($x =~ /(\d+|[^\d]+)/g);
+    my @tokens_y = ($y =~ /(\d+|[^\d]+)/g);
 
-    while (@xa && @ya) {
-        my $pa = shift @xa;
-        my $pb = shift @ya;
+    while (@tokens_x && @tokens_y) {
+        my $part_x = shift @tokens_x;
+        my $part_y = shift @tokens_y;
 
-        if ($pa =~ /^\d+$/ && $pb =~ /^\d+$/) {
+        if ($part_x =~ /^\d+$/ && $part_y =~ /^\d+$/) {
             # Both parts are numeric: compare as integers
-            my $na = $pa + 0;
-            my $nb = $pb + 0;
-            if ($na != $nb) {
-                return $na <=> $nb;
+            my $num_x = $part_x + 0;
+            my $num_y = $part_y + 0;
+            if ($num_x != $num_y) {
+                return $num_x <=> $num_y;
             }
             # If numeric values equal (e.g. "001" vs "1"), prefer shorter digit run
             # This handles leading zeros: "1" < "01" < "001"
-            if (length($pa) != length($pb)) {
-                return length($pa) <=> length($pb);
+            if (length($part_x) != length($part_y)) {
+                return length($part_x) <=> length($part_y);
             }
             next; # equal numeric value and equal length -> continue to next part
         } else {
             # Non-numeric comparison (at least one part is non-numeric):
             if ($CASE_INSENSITIVE) {
-                my $la = lc($pa);
-                my $lb = lc($pb);
-                if ($la ne $lb) {
-                    return $la cmp $lb;
+                my $lower_x = lc($part_x);
+                my $lower_y = lc($part_y);
+                if ($lower_x ne $lower_y) {
+                    return $lower_x cmp $lower_y;
                 }
             } else {
-                if ($pa ne $pb) {
-                    return $pa cmp $pb;
+                if ($part_x ne $part_y) {
+                    return $part_x cmp $part_y;
                 }
             }
             next;
@@ -676,7 +494,7 @@ sub natural_cmp {
 
     # If one string has remaining parts, the shorter one (fewer parts) sorts first
     # Example: "file" < "file2" (["file"] vs ["file", "2"])
-    return scalar(@xa) <=> scalar(@ya);
+    return scalar(@tokens_x) <=> scalar(@tokens_y);
 }
 
 # -----------------------------------------------------------------------------
@@ -713,4 +531,62 @@ sub natural_cmp {
 sub uniq {
   my %seen;
   return grep { !$seen{$_}++ } @_;
+}
+
+# -----------------------------------------------------------------------------
+# Read entire file content into string
+#
+# Parameters:
+#   $file - path to file to read
+#
+# Returns:
+#   String containing entire file content
+#
+# Dies on error with descriptive message
+# -----------------------------------------------------------------------------
+sub read_file {
+    my ($file) = @_;
+    open(my $fh, '<', $file) or die "Could not open $file: $!";
+    my $content = do { local $/; <$fh> };
+    close($fh) or die "Could not close $file: $!";
+    return $content;
+}
+
+# -----------------------------------------------------------------------------
+# Write content to file atomically using temporary file
+#
+# Purpose:
+#   Safely write content by creating temp file first, then atomically
+#   replacing the original. Ensures no data corruption on failure.
+#
+# Parameters:
+#   $file    - path to file to write
+#   $content - string content to write
+#
+# Dies on error with descriptive message. On error, attempts to clean up
+# temporary file before dying.
+# -----------------------------------------------------------------------------
+sub write_file {
+    my ($file, $content) = @_;
+
+    my ($fh, $tempFile) = tempfile(
+        basename($file) . "-XXXXXXXX",
+        DIR => dirname($file),
+        UNLINK => 0,
+    );
+
+    eval {
+        print $fh $content or die "Could not write to $tempFile: $!";
+        close($fh) or die "Could not close $tempFile: $!";
+
+        unlink($file) or die "Could not delete $file: $!";
+        rename($tempFile, $file) or die "Could not rename $tempFile to $file: $!";
+    };
+
+    if ($@) {
+        my $error = $@;
+        close($fh) if defined fileno($fh);
+        unlink($tempFile) if -e $tempFile;
+        die "Failed to write $file: $error";
+    }
 }
