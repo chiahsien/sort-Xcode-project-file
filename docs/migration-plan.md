@@ -375,18 +375,18 @@ python3 $sorter $fullFilePath
 |---|------|--------|
 | 1 | Scaffold: shebang, license, `__main__` | ✅ |
 | 2 | CLI: `argparse` with all flags + `--check`, `--version` | ✅ |
-| 3 | Regex: port all 4 compiled patterns | ☐ |
-| 4 | `sort_project_file()`: state machine | ☐ |
-| 5 | `read_array_entries()` | ☐ |
-| 6 | `extract_filename()` | ☐ |
-| 7 | `is_directory()` + `KNOWN_FILES` set | ☐ |
-| 8 | `natural_sort_key()` — most critical | ☐ |
-| 9 | Sort key functions: `children_sort_key`, `files_sort_key` | ☐ |
-| 10 | `uniq()` | ☐ |
-| 11 | PBXFrameworksBuildPhase passthrough | ☐ |
-| 12 | `read_file()` via `Path.read_text()` | ☐ |
-| 13 | `write_file()` — truly atomic with `os.replace()` | ☐ |
-| 14 | File existence validation before processing | ☐ |
+| 3 | Regex: port all 4 compiled patterns | ✅ |
+| 4 | `sort_project_file()`: state machine | ✅ |
+| 5 | `read_array_entries()` | ✅ |
+| 6 | `extract_filename()` | ✅ |
+| 7 | `is_directory()` + `KNOWN_FILES` set | ✅ |
+| 8 | `natural_sort_key()` — most critical | ✅ |
+| 9 | Sort key functions: `children_sort_key`, `files_sort_key` | ✅ |
+| 10 | `uniq()` | ✅ |
+| 11 | PBXFrameworksBuildPhase passthrough | ✅ |
+| 12 | `read_file()` via `Path.read_text()` | ✅ |
+| 13 | `write_file()` — truly atomic with `os.replace()` | ✅ |
+| 14 | File existence validation before processing | ✅ |
 | 15 | Test fixtures (`.pbxproj` files) | ☐ |
 | 16 | Unit tests: `natural_sort_key` | ☐ |
 | 17 | Unit tests: `is_directory` | ☐ |

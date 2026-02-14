@@ -40,14 +40,68 @@
 # NOTE: Build-phase order-sensitive arrays (e.g., buildPhases) are NOT sorted by this script.
 
 import argparse
+import os
+import re
 import sys
+import tempfile
 from pathlib import Path
 
 __version__ = "0.1.0"
 
 # ---------------------------------------------------------------------------
-# Usage text — matches Perl version's format, printed to stderr with exit 1
+# Compiled regex patterns
 # ---------------------------------------------------------------------------
+
+# Matches: children = (, buildConfigurations = (, targets = (, etc.
+REGEX_ARRAY_START = re.compile(
+    r"""^
+    (\s*)                           # capture leading whitespace
+    (children|buildConfigurations|targets|packageProductDependencies|packageReferences)
+    \s* = \s* \( \s*$               # = ( with optional whitespace
+    """,
+    re.VERBOSE,
+)
+
+# Matches: files = (
+REGEX_FILES_ARRAY = re.compile(
+    r"""^
+    (\s*)                           # capture leading whitespace
+    files \s* = \s* \( \s*$         # files = (
+    """,
+    re.VERBOSE,
+)
+
+# Matches child/target/config entries: A1B2C3D4E5F6789012345678 /* Name */,
+REGEX_CHILD_ENTRY = re.compile(
+    r"""^
+    \s*                             # optional leading whitespace
+    [A-Fa-f0-9]{24}                 # Xcode object ID
+    \s+ /\* \s*                     # comment start
+    (.+?)                           # capture name (non-greedy)
+    \s* \*/ ,                       # comment end and comma
+    $
+    """,
+    re.VERBOSE,
+)
+
+# Matches file entries: A1B2C3D4E5F6789012345678 /* Name in Sources */,
+REGEX_FILE_ENTRY = re.compile(
+    r"""^
+    \s*                             # optional leading whitespace
+    [A-Fa-f0-9]{24}                 # Xcode object ID
+    \s+ /\* \s*                     # comment start
+    (.+?)                           # capture filename (non-greedy)
+    \s* \*/ \s+ in \s+              # comment end, " in " keyword
+    """,
+    re.VERBOSE,
+)
+
+# Tokenizer for natural sort: splits into digit and non-digit runs
+_TOKENIZE = re.compile(r"(\d+|[^\d]+)")
+
+_KNOWN_FILES: set[str] = {"create_hash_table"}
+_KNOWN_FILES_LC: set[str] = {f.lower() for f in _KNOWN_FILES}
+
 _USAGE_TEXT = """\
 Usage: sort-Xcode-project-file.py [options] path/to/project.pbxproj [path/to/project.pbxproj ...]
   -h, --help              show this help message
@@ -64,22 +118,105 @@ Notes:
 
 
 # ---------------------------------------------------------------------------
-# Stub: sort_project_file
+# Natural sort key
 #
-# Purpose:
-#   Placeholder for the core sorting logic (Phase 2). Currently a no-op
-#   that will be replaced with the full state machine port.
-#
-# Parameters:
-#   project_file   - path to project.pbxproj file (Path object)
-#   case_insensitive - whether to use case-insensitive sorting
-#   check_only     - if True, compare but don't write (Phase 2)
-#   print_warnings - whether to print warnings to stderr
-#
-# Returns:
-#   True if file was already sorted (or was sorted successfully),
-#   False if file needed sorting and --check was used
+# Tokenizes a string into digit/non-digit runs and builds a comparison key.
+# Digit runs compare numerically; ties broken by string length (shorter first,
+# so "1" < "01" < "001"). Non-digit runs compare lexically (or case-folded).
 # ---------------------------------------------------------------------------
+def natural_sort_key(s: str, case_insensitive: bool = False) -> list[tuple]:
+    tokens = _TOKENIZE.findall(s) if s else []
+    key: list[tuple] = []
+    for token in tokens:
+        if token.isdigit():
+            key.append((0, int(token), len(token)))
+        else:
+            text = token.lower() if case_insensitive else token
+            key.append((1, text))
+    return key
+
+
+def extract_filename(line: str, pattern: re.Pattern) -> str:
+    m = pattern.search(line)
+    return m.group(1) if m else ""
+
+
+def is_directory(filename: str, case_insensitive: bool = False) -> bool:
+    if "." in filename:
+        return False
+    lookup = _KNOWN_FILES_LC if case_insensitive else _KNOWN_FILES
+    name = filename.lower() if case_insensitive else filename
+    return name not in lookup
+
+
+def uniq(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        if item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
+
+
+def children_sort_key(line: str, case_insensitive: bool = False) -> tuple:
+    name = extract_filename(line, REGEX_CHILD_ENTRY)
+    return (not is_directory(name, case_insensitive), natural_sort_key(name, case_insensitive))
+
+
+def files_sort_key(line: str, case_insensitive: bool = False) -> tuple:
+    name = extract_filename(line, REGEX_FILE_ENTRY)
+    return tuple(natural_sort_key(name, case_insensitive))
+
+
+def read_array_entries(
+    lines: list[str],
+    start_index: int,
+    end_marker: str,
+    project_file: Path,
+    array_name: str,
+) -> tuple[list[str], str, int]:
+    entries: list[str] = []
+    i = start_index
+    escaped_marker = re.escape(end_marker)
+
+    while i < len(lines):
+        line = lines[i]
+        if re.match(escaped_marker + r"\s*$", line):
+            return entries, line, i + 1
+        entries.append(line)
+        i += 1
+
+    raise RuntimeError(
+        f"Unexpected end of file while parsing {array_name} array in {project_file}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Atomic file write using temp file + os.replace()
+#
+# os.replace() is atomic on POSIX — no unlink before rename needed
+# (fixes the data-loss window in the original Perl unlink+rename sequence).
+# ---------------------------------------------------------------------------
+def write_file(target: Path, content: str) -> None:
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f".{target.name}.",
+        dir=target.parent,
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, str(target))
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 def sort_project_file(
     project_file: Path,
     *,
@@ -87,7 +224,79 @@ def sort_project_file(
     check_only: bool = False,
     print_warnings: bool = True,
 ) -> bool:
-    # TODO: Phase 2 — port sort logic from Perl
+    content = project_file.read_text(encoding="utf-8")
+    lines = content.split("\n")
+
+    output: list[str] = []
+    i = 0
+
+    while i < len(lines):
+        line = lines[i]
+
+        if REGEX_FILES_ARRAY.match(line):
+            indent_match = REGEX_FILES_ARRAY.match(line)
+            indent = indent_match.group(1) if indent_match else ""
+            output.append(line)
+            i += 1
+
+            end_marker = indent + ");"
+            array_lines, end_line, next_index = read_array_entries(
+                lines, i, end_marker, project_file, "files"
+            )
+            i = next_index
+
+            unique_lines = uniq(array_lines)
+            sorted_lines = sorted(
+                unique_lines,
+                key=lambda ln: files_sort_key(ln, case_insensitive),
+            )
+            output.extend(sorted_lines)
+            output.append(end_line)
+
+        elif REGEX_ARRAY_START.match(line):
+            m = REGEX_ARRAY_START.match(line)
+            indent = m.group(1) if m else ""
+            array_name = m.group(2) if m else ""
+            output.append(line)
+            i += 1
+
+            end_marker = indent + ");"
+            array_lines, end_line, next_index = read_array_entries(
+                lines, i, end_marker, project_file, array_name
+            )
+            i = next_index
+
+            unique_lines = uniq(array_lines)
+            sorted_lines = sorted(
+                unique_lines,
+                key=lambda ln: children_sort_key(ln, case_insensitive),
+            )
+            output.extend(sorted_lines)
+            output.append(end_line)
+
+        # PBXFrameworksBuildPhase: pass through without sorting (order matters)
+        elif "Begin PBXFrameworksBuildPhase section" in line:
+            output.append(line)
+            i += 1
+            while i < len(lines):
+                fw_line = lines[i]
+                output.append(fw_line)
+                i += 1
+                if "End PBXFrameworksBuildPhase section" in fw_line:
+                    break
+
+        else:
+            output.append(line)
+            i += 1
+
+    sorted_content = "\n".join(output)
+
+    if check_only:
+        return content == sorted_content
+
+    if content != sorted_content:
+        write_file(project_file, sorted_content)
+
     return True
 
 
