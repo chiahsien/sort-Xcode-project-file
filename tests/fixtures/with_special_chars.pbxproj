@@ -1,0 +1,54 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		AABBCCDD00112233EE000001 /* UIButton+Kingfisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD00112233EE100001; };
+		AABBCCDD00112233EE000002 /* NSTextAttachment+Kingfisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD00112233EE100002; };
+		AABBCCDD00112233EE000003 /* ImageView+Kingfisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD00112233EE100003; };
+		AABBCCDD00112233EE000004 /* AccountAuthenticationUpdaterPasswordPromptViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD00112233EE100004; };
+		AABBCCDD00112233EE000005 /* String+SHA256.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD00112233EE100005; };
+		AABBCCDD00112233EE000006 /* CPListItem+Kingfisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD00112233EE100006; };
+/* End PBXBuildFile section */
+
+/* Begin PBXGroup section */
+		AABBCCDD00112233EE200001 = {
+			isa = PBXGroup;
+			children = (
+				AABBCCDD00112233EE300008 /* Resources */,
+				AABBCCDD00112233EE300005 /* String+SHA256.swift */,
+				AABBCCDD00112233EE300001 /* UIButton+Kingfisher.swift */,
+				AABBCCDD00112233EE300007 /* AccountAuthenticationUpdaterPasswordPromptViewController.swift */,
+				AABBCCDD00112233EE300003 /* ImageView+Kingfisher.swift */,
+				AABBCCDD00112233EE300006 /* CPListItem+Kingfisher.swift */,
+				AABBCCDD00112233EE300009 /* Extensions */,
+				AABBCCDD00112233EE300002 /* NSTextAttachment+Kingfisher.swift */,
+				AABBCCDD00112233EE300004 /* Supporting Files */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXSourcesBuildPhase section */
+		AABBCCDD00112233EE700001 = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AABBCCDD00112233EE000004 /* AccountAuthenticationUpdaterPasswordPromptViewController.swift in Sources */,
+				AABBCCDD00112233EE000001 /* UIButton+Kingfisher.swift in Sources */,
+				AABBCCDD00112233EE000005 /* String+SHA256.swift in Sources */,
+				AABBCCDD00112233EE000003 /* ImageView+Kingfisher.swift in Sources */,
+				AABBCCDD00112233EE000006 /* CPListItem+Kingfisher.swift in Sources */,
+				AABBCCDD00112233EE000002 /* NSTextAttachment+Kingfisher.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+	};
+	rootObject = AABBCCDD00112233EEAAAAAA;
+}

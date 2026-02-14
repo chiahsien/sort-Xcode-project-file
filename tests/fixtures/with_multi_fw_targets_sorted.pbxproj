@@ -1,0 +1,66 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXFrameworksBuildPhase section */
+		AABBCCDD00112233EEFFBB01 = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AABBCCDD00112233EEFFCC03 /* Zebra.framework in Frameworks */,
+				AABBCCDD00112233EEFFCC01 /* Alpha.framework in Frameworks */,
+				AABBCCDD00112233EEFFCC02 /* libz.tbd in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AABBCCDD00112233EEFFBB02 = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AABBCCDD00112233EEFFCC06 /* realm-monorepo.xcframework in Frameworks */,
+				AABBCCDD00112233EEFFCC04 /* libcompression.tbd in Frameworks */,
+				AABBCCDD00112233EEFFCC05 /* OpenSSL.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AABBCCDD00112233EEFFBB03 = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		AABBCCDD00112233EEFF2001 = {
+			isa = PBXGroup;
+			children = (
+				AABBCCDD00112233EEFF3001 /* AppDelegate.swift */,
+				AABBCCDD00112233EEFF3002 /* Main.swift */,
+				AABBCCDD00112233EEFF3003 /* zebra.swift */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXSourcesBuildPhase section */
+		AABBCCDD00112233EEFF7001 = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AABBCCDD00112233EEFF0003 /* zebra.swift in Sources */,
+				AABBCCDD00112233EEFF0001 /* AppDelegate.swift in Sources */,
+				AABBCCDD00112233EEFF0002 /* Main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+	};
+	rootObject = AABBCCDD00112233EEFFAAAA;
+}

@@ -4,15 +4,14 @@
 
 CLI tool that sorts sections of Xcode `project.pbxproj` files to reduce merge conflicts. Forked from WebKit's sort-Xcode-project-file with extended functionality.
 
-Available in two versions (producing byte-for-byte identical output):
-- **Python 3** (primary): `sort-Xcode-project-file.py` (~423 lines)
-- **Perl 5** (legacy): `sort-Xcode-project-file.pl` (~593 lines)
+- **Script**: `sort-Xcode-project-file.py` (~428 lines, Python 3.9+, stdlib only)
+- **Legacy Perl version**: `sort-Xcode-project-file.pl` (maintained for reference; not actively developed)
 
-**License:** MIT (file headers carry BSD from original WebKit; LICENSE file is MIT)
+**License:** MIT
 
 ## Build / Run / Test Commands
 
-### Run the script (Python — primary)
+### Run the script
 ```bash
 python3 sort-Xcode-project-file.py <path-to-project.pbxproj>
 python3 sort-Xcode-project-file.py <path-to-project.xcodeproj>
@@ -20,41 +19,32 @@ python3 sort-Xcode-project-file.py --case-insensitive <path>
 python3 sort-Xcode-project-file.py --check <path>         # CI mode: exit 0 if sorted
 ```
 
-### Run the script (Perl — legacy)
-```bash
-perl sort-Xcode-project-file.pl <path-to-project.pbxproj>
-```
-
 ### Tests
 ```bash
 python3 -m unittest discover tests -v    # Run all 54 tests
-python3 tests/cross_validate.py          # Cross-validate Perl vs Python output (requires perl)
 ```
 
 ### Verify syntax
 ```bash
 python3 -c "import py_compile; py_compile.compile('sort-Xcode-project-file.py', doraise=True)"
-perl -c sort-Xcode-project-file.pl
 ```
 
 ## Architecture
 
-### Python version (`sort-Xcode-project-file.py`)
-
 ```
-sort-Xcode-project-file.py    # Everything lives here
-├── CLI parsing                # argparse (lines 42-110)
-├── Main loop                  # Iterates args.files (lines 112-140)
-├── Regex patterns             # re.compile with re.VERBOSE (lines 54-90)
-├── sort_project_file()        # Core: read → parse → sort → write (lines 150-230)
-├── read_array_entries()       # Extract array contents between ( and ); (lines 240-260)
-├── extract_filename()         # Regex-based filename extraction (lines 270-280)
-├── is_directory()             # Heuristic: no extension = directory (lines 290-310)
-├── children_sort_key()        # Sort key: dirs first, then natural sort (lines 320-330)
-├── files_sort_key()           # Sort key: natural sort only (lines 340-350)
-├── natural_sort_key()         # Natural (alphanumeric) sort key (lines 360-390)
-├── uniq()                     # Deduplicate preserving order (lines 400-410)
-└── write_file()               # Atomic write via tempfile + os.replace() (lines 415-423)
+sort-Xcode-project-file.py    # Everything lives here (~428 lines)
+├── Regex patterns             # re.compile with re.VERBOSE (lines 31-76)
+├── natural_sort_key()         # Natural (alphanumeric) sort key (line 98)
+├── extract_filename()         # Regex-based filename extraction (line 117)
+├── is_directory()             # Heuristic: no extension = directory (line 123)
+├── uniq()                     # Deduplicate preserving order (line 136)
+├── children_sort_key()        # Sort key: dirs first, then natural sort (line 147)
+├── files_sort_key()           # Sort key: natural sort only (line 153)
+├── read_array_entries()       # Extract array contents between ( and ); (line 159)
+├── write_file()               # Atomic write via tempfile + os.replace() (line 193)
+├── sort_project_file()        # Core: read → parse → sort → write (line 217)
+├── build_parser()             # argparse CLI definition (line 307)
+└── main()                     # Entry point: parse args, process files (line 366)
 ```
 
 ### Test suite (`tests/`)
@@ -116,7 +106,6 @@ Do NOT add pip dependencies. This script must run with stock Python on macOS.
 ### Regex Style
 - Use `re.compile(..., re.VERBOSE)` stored in module-level constants
 - Use verbose mode with comments explaining each part
-- Match the same patterns as the Perl version exactly
 
 ### Documentation Style
 Every function should have a docstring:
@@ -154,45 +143,24 @@ def function_name(param: type) -> return_type:
 - Separator comments (`# ---...---`) between function groups
 - Type hints using Python 3.9+ built-in generics (`list[str]`, not `List[str]`)
 
-## Code Style Guidelines (Perl — legacy)
-
-### Perl Pragmas (mandatory)
-```perl
-use strict;
-use warnings;
-```
-
-### Modules — Core Only
-Only use Perl core modules: `File::Basename`, `File::Spec`, `File::Temp`, `Getopt::Long`
-
-### Naming Conventions
-| Element | Convention | Examples |
-|---|---|---|
-| Subroutines | `snake_case` | `sort_project_file`, `read_file` |
-| Sort comparators | `camelCase` (legacy) | `sortChildrenByFileName` |
-| Local variables | `$camelCase` | `$projectFile`, `$aFileName` |
-| Global flags | `$UPPER_CASE` | `$CASE_INSENSITIVE` |
-| Constants/regex | `$REGEX_UPPER_CASE` | `$REGEX_ARRAY_START` |
-
 ## Critical Constraints
 
-1. **No external dependencies** — must work with stock Python/Perl on macOS
+1. **No external dependencies** — must work with stock Python 3.9+ on macOS
 2. **PBXFrameworksBuildPhase must never be sorted** — framework link order is significant
 3. **Atomic file writes** — never leave a `.pbxproj` in a corrupted state
 4. **Backward compatible** — default behavior (case-sensitive) must match original WebKit script
 5. **The script modifies files in-place** — always test against a copy
-6. **Output parity** — Python and Perl versions must produce byte-for-byte identical output
 
 ## CLI Flags Reference
 
-| Flag | Python | Perl | Effect |
-|---|---|---|---|
-| `--case-insensitive` | ✅ | ✅ | Case-insensitive natural sort |
-| `--case-sensitive` | ✅ | ✅ | Force case-sensitive (default) |
-| `--check` | ✅ | ❌ | Exit 0 if sorted, exit 1 if not (no modification) |
-| `--version` | ✅ | ❌ | Show version and exit |
-| `-w` / `--no-warnings` | ✅ | ✅ | Suppress warning messages |
-| `-h` / `--help` | ✅ | ✅ | Show usage and exit |
+| Flag | Effect |
+|---|---|
+| `--case-insensitive` | Case-insensitive natural sort |
+| `--case-sensitive` | Force case-sensitive (default) |
+| `--check` | Exit 0 if sorted, exit 1 if not (no modification) |
+| `--version` | Show version and exit |
+| `-w` / `--no-warnings` | Suppress warning messages |
+| `-h` / `--help` | Show usage and exit |
 
 ## Known Limitations & Improvement Plan
 

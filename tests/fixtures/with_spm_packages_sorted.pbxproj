@@ -1,0 +1,83 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXGroup section */
+		AABBCCDD00112233EEFF2001 = {
+			isa = PBXGroup;
+			children = (
+				AABBCCDD00112233EEFF3002 /* AppDelegate.swift */,
+				AABBCCDD00112233EEFF3001 /* Main.swift */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		AABBCCDD00112233EEFF5001 = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AABBCCDD00112233EEFF6001;
+			buildPhases = (
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MyApp;
+			packageProductDependencies = (
+				AABBCCDD00112233EEFFDD01 /* Alamofire */,
+				AABBCCDD00112233EEFFDD02 /* Kingfisher */,
+				AABBCCDD00112233EEFFDD03 /* MBProgressHUD */,
+				AABBCCDD00112233EEFFDD04 /* SwiftyJSON */,
+			);
+			productName = MyApp;
+			productReference = AABBCCDD00112233EEFF8001;
+			productType = "com.apple.product-type.application";
+		};
+		AABBCCDD00112233EEFF5002 = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AABBCCDD00112233EEFF6002;
+			buildPhases = (
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MyAppTests;
+			packageProductDependencies = (
+				AABBCCDD00112233EEFFDD05 /* Nimble */,
+				AABBCCDD00112233EEFFDD06 /* Quick */,
+			);
+			productName = MyAppTests;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AABBCCDD00112233EEFFAAAA = {
+			isa = PBXProject;
+			buildConfigurationList = AABBCCDD00112233EEFF6003;
+			mainGroup = AABBCCDD00112233EEFF2001;
+			packageReferences = (
+				AABBCCDD00112233EEFFEE01 /* XCRemoteSwiftPackageReference "Alamofire" */,
+				AABBCCDD00112233EEFFEE02 /* XCRemoteSwiftPackageReference "Kingfisher" */,
+				AABBCCDD00112233EEFFEE03 /* XCRemoteSwiftPackageReference "MBProgressHUD" */,
+				AABBCCDD00112233EEFFEE05 /* XCRemoteSwiftPackageReference "Nimble" */,
+				AABBCCDD00112233EEFFEE06 /* XCRemoteSwiftPackageReference "Quick" */,
+				AABBCCDD00112233EEFFEE04 /* XCRemoteSwiftPackageReference "SwiftyJSON" */,
+			);
+			productRefGroup = AABBCCDD00112233EEFF2002;
+			targets = (
+				AABBCCDD00112233EEFF5001 /* MyApp */,
+				AABBCCDD00112233EEFF5002 /* MyAppTests */,
+			);
+		};
+/* End PBXProject section */
+
+	};
+	rootObject = AABBCCDD00112233EEFFAAAA;
+}

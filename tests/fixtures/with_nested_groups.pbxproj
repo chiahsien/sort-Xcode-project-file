@@ -1,0 +1,60 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXGroup section */
+		AABBCCDD00112233EE200001 = {
+			isa = PBXGroup;
+			children = (
+				AABBCCDD00112233EE300005 /* zebra.swift */,
+				AABBCCDD00112233EE300003 /* ViewControllers */,
+				AABBCCDD00112233EE300001 /* AppDelegate.swift */,
+				AABBCCDD00112233EE300004 /* Models */,
+				AABBCCDD00112233EE300002 /* Main.swift */,
+				AABBCCDD00112233EE300006 /* Extensions */,
+			);
+			sourceTree = "<group>";
+		};
+		AABBCCDD00112233EE200002 = {
+			isa = PBXGroup;
+			children = (
+				AABBCCDD00112233EE400003 /* file10.swift */,
+				AABBCCDD00112233EE400001 /* file2.swift */,
+				AABBCCDD00112233EE400004 /* Helpers */,
+				AABBCCDD00112233EE400002 /* file1.swift */,
+			);
+			name = ViewControllers;
+			sourceTree = "<group>";
+		};
+		AABBCCDD00112233EE200003 = {
+			isa = PBXGroup;
+			children = (
+				AABBCCDD00112233EE500002 /* User.swift */,
+				AABBCCDD00112233EE500001 /* Account.swift */,
+				AABBCCDD00112233EE500003 /* Networking */,
+			);
+			name = Models;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXProject section */
+		AABBCCDD00112233EEAAAAAA = {
+			isa = PBXProject;
+			buildConfigurationList = AABBCCDD00112233EE600001;
+			mainGroup = AABBCCDD00112233EE200001;
+			packageReferences = (
+			);
+			productRefGroup = AABBCCDD00112233EE200009;
+			targets = (
+			);
+		};
+/* End PBXProject section */
+
+	};
+	rootObject = AABBCCDD00112233EEAAAAAA;
+}

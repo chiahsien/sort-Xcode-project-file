@@ -42,7 +42,7 @@ Brewfile Dangerfile LICENSE README CHANGELOG
 
 ### 5. Stdin/Stdout Pipeline Support
 
-**Problem:** Can't use in pipelines: `cat project.pbxproj | perl sort-Xcode-project-file.pl > sorted.pbxproj`
+**Problem:** Can't use in pipelines: `cat project.pbxproj | sort-Xcode-project-file.py > sorted.pbxproj`
 
 **Proposal:** Accept `-` as a filename to read from stdin and write to stdout. Pairs naturally with `--dry-run`.
 
@@ -81,13 +81,13 @@ Test `test_frameworks_preserved` in `tests/test_sort_project.py` confirms PBXFra
 
 **Proposal:** Add `--recursive` flag to find and sort all `project.pbxproj` files under a given directory. Useful for monorepos with multiple Xcode projects.
 
-**Effort:** Low — `File::Find` is a core module
+**Effort:** Low — `pathlib.Path.rglob()` handles recursive search
 
 ---
 
 ### 10. ~~Version Flag~~ ✅ Completed
 
-Python port includes `--version` flag (currently `0.1.0`).
+Python port includes `--version` flag (`1.0.0`).
 
 ---
 
