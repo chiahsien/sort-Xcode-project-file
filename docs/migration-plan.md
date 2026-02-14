@@ -373,8 +373,8 @@ python3 $sorter $fullFilePath
 
 | # | Task | Status |
 |---|------|--------|
-| 1 | Scaffold: shebang, license, `__main__` | ☐ |
-| 2 | CLI: `argparse` with all flags + `--check`, `--version` | ☐ |
+| 1 | Scaffold: shebang, license, `__main__` | ✅ |
+| 2 | CLI: `argparse` with all flags + `--check`, `--version` | ✅ |
 | 3 | Regex: port all 4 compiled patterns | ☐ |
 | 4 | `sort_project_file()`: state machine | ☐ |
 | 5 | `read_array_entries()` | ☐ |
