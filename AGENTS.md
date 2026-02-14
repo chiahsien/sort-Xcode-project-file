@@ -5,7 +5,6 @@
 CLI tool that sorts sections of Xcode `project.pbxproj` files to reduce merge conflicts. Forked from WebKit's sort-Xcode-project-file with extended functionality.
 
 - **Script**: `sort-Xcode-project-file.py` (~503 lines, Python 3.9+, stdlib only)
-- **Legacy Perl version**: `sort-Xcode-project-file.pl` (maintained for reference; not actively developed)
 
 **License:** MIT
 
@@ -62,7 +61,6 @@ tests/
 ├── test_extract_filename.py       # 5 tests for extract_filename()
 ├── test_sort_project.py           # 16 integration tests (sort, idempotency, check mode, edge cases)
 ├── test_cli.py                    # 19 CLI tests via subprocess (exit codes, flags, stdin, recursive)
-├── cross_validate.py              # Standalone cross-validation script (Perl vs Python)
 └── fixtures/
     ├── basic_unsorted.pbxproj     # Unsorted input fixture
     ├── basic_sorted.pbxproj       # Expected output (case-sensitive)
@@ -174,10 +172,6 @@ def function_name(param: type) -> return_type:
 | `--version` | Show version and exit |
 | `-w` / `--no-warnings` | Suppress warning messages |
 | `-h` / `--help` | Show usage and exit |
-
-## Known Limitations & Improvement Plan
-
-See [`docs/improvement-plan.md`](docs/improvement-plan.md) for a prioritized list of improvements.
 
 ## Commit Style
 
