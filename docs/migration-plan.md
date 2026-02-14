@@ -387,13 +387,13 @@ python3 $sorter $fullFilePath
 | 12 | `read_file()` via `Path.read_text()` | ✅ |
 | 13 | `write_file()` — truly atomic with `os.replace()` | ✅ |
 | 14 | File existence validation before processing | ✅ |
-| 15 | Test fixtures (`.pbxproj` files) | ☐ |
-| 16 | Unit tests: `natural_sort_key` | ☐ |
-| 17 | Unit tests: `is_directory` | ☐ |
-| 18 | Unit tests: `uniq` | ☐ |
-| 19 | Integration tests: end-to-end sorting | ☐ |
-| 20 | Integration tests: CLI flags and exit codes | ☐ |
-| 21 | Cross-validation: Perl vs Python output diff | ☐ |
+| 15 | Test fixtures (`.pbxproj` files) | ✅ |
+| 16 | Unit tests: `natural_sort_key` | ✅ |
+| 17 | Unit tests: `is_directory` | ✅ |
+| 18 | Unit tests: `uniq` | ✅ |
+| 19 | Integration tests: end-to-end sorting | ✅ |
+| 20 | Integration tests: CLI flags and exit codes | ✅ |
+| 21 | Cross-validation: Perl vs Python output diff | ✅ |
 | 22 | Update README | ☐ |
 | 23 | Update AGENTS.md | ☐ |
 | 24 | Update improvement-plan.md | ☐ |
