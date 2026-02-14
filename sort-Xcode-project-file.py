@@ -74,13 +74,29 @@ REGEX_FILE_ENTRY = re.compile(
 # Tokenizer for natural sort: splits into digit and non-digit runs
 _TOKENIZE = re.compile(r"(\d+|[^\d]+)")
 
-_KNOWN_FILES: set[str] = {"create_hash_table"}
+_KNOWN_FILES: set[str] = {
+    "Brewfile",
+    "Cartfile",
+    "CHANGELOG",
+    "create_hash_table",
+    "Dangerfile",
+    "Fastfile",
+    "Gemfile",
+    "LICENSE",
+    "Makefile",
+    "Podfile",
+    "Rakefile",
+    "README",
+}
 _KNOWN_FILES_LC: set[str] = {f.lower() for f in _KNOWN_FILES}
 
 _USAGE_TEXT = """\
-Usage: sort-Xcode-project-file.py [options] path/to/project.pbxproj [path/to/project.pbxproj ...]
+Usage: sort-Xcode-project-file.py [options] path/to/project.pbxproj [...]
+       sort-Xcode-project-file.py [options] -    (read stdin, write stdout)
+
   -h, --help              show this help message
   -w, --no-warnings       suppress warnings (default: show warnings)
+  -r, --recursive         recursively find and sort all project.pbxproj under directories
   --case-insensitive      enable case-insensitive sorting (default: disabled)
   --case-sensitive        explicit alias to force case-sensitive sorting
   --check                 check if files are sorted (exit 0 = sorted, exit 1 = unsorted)
@@ -88,7 +104,8 @@ Usage: sort-Xcode-project-file.py [options] path/to/project.pbxproj [path/to/pro
 
 Notes:
   - Default behavior is case-sensitive sorting (original behavior).
-  - Use --case-insensitive to enable case-insensitive natural sorting
+  - Use --case-insensitive to enable case-insensitive natural sorting.
+  - Use - to read from stdin and write to stdout. Works with --check.
 """
 
 
@@ -214,20 +231,19 @@ def write_file(target: Path, content: str) -> None:
         raise
 
 
-def sort_project_file(
-    project_file: Path,
+def sort_project_content(
+    content: str,
     *,
     case_insensitive: bool = False,
-    check_only: bool = False,
-    print_warnings: bool = True,
-) -> bool:
-    """Sort arrays in *project_file* in-place and return whether it was already sorted.
+    source_label: str = "<stdin>",
+) -> str:
+    """Sort arrays in a pbxproj *content* string and return the sorted result.
 
-    When *check_only* is True the file is not modified; the return value
-    indicates whether the content is already in sorted order.
+    Pure-function core: no file I/O, no side-effects.  *source_label* is used
+    only for error messages when an unterminated array is encountered.
     """
-    content = project_file.read_text(encoding="utf-8")
     lines = content.split("\n")
+    project_file = Path(source_label)  # only for error messages in read_array_entries
 
     output: list[str] = []
     i = 0
@@ -293,7 +309,27 @@ def sort_project_file(
         output.append(line)
         i += 1
 
-    sorted_content = "\n".join(output)
+    return "\n".join(output)
+
+
+def sort_project_file(
+    project_file: Path,
+    *,
+    case_insensitive: bool = False,
+    check_only: bool = False,
+    print_warnings: bool = True,
+) -> bool:
+    """Sort arrays in *project_file* in-place and return whether it was already sorted.
+
+    When *check_only* is True the file is not modified; the return value
+    indicates whether the content is already in sorted order.
+    """
+    content = project_file.read_text(encoding="utf-8")
+    sorted_content = sort_project_content(
+        content,
+        case_insensitive=case_insensitive,
+        source_label=str(project_file),
+    )
 
     if check_only:
         return content == sorted_content
@@ -348,6 +384,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "-r", "--recursive",
+        action="store_true",
+        default=False,
+        help="recursively find and sort all project.pbxproj under directories",
+    )
+
+    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
@@ -383,11 +426,44 @@ def main() -> int:
     case_insensitive = args.case_insensitive
     print_warnings = not args.no_warnings
     check_only = args.check
+    recursive = args.recursive
 
     all_sorted = True
 
     for project_file_str in args.files:
+        # Stdin/stdout mode
+        if project_file_str == "-":
+            content = sys.stdin.read()
+            sorted_content = sort_project_content(
+                content, case_insensitive=case_insensitive
+            )
+            if check_only:
+                if content != sorted_content:
+                    all_sorted = False
+            else:
+                sys.stdout.write(sorted_content)
+            continue
+
         project_file = Path(project_file_str)
+
+        # Recursive directory expansion
+        if recursive and project_file.is_dir():
+            found = sorted(project_file.rglob("project.pbxproj"))
+            if not found and print_warnings:
+                print(
+                    f"WARNING: No project.pbxproj found under: {project_file}",
+                    file=sys.stderr,
+                )
+            for pbxproj in found:
+                was_sorted = sort_project_file(
+                    pbxproj,
+                    case_insensitive=case_insensitive,
+                    check_only=check_only,
+                    print_warnings=print_warnings,
+                )
+                if not was_sorted:
+                    all_sorted = False
+            continue
 
         if project_file.name.endswith(".xcodeproj"):
             project_file = project_file / "project.pbxproj"
