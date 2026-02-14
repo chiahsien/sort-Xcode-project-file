@@ -2,67 +2,93 @@
 
 ## Project Overview
 
-Single-file Perl script that sorts sections of Xcode `project.pbxproj` files to reduce merge conflicts. Forked from WebKit's sort-Xcode-project-file with extended functionality.
+CLI tool that sorts sections of Xcode `project.pbxproj` files to reduce merge conflicts. Forked from WebKit's sort-Xcode-project-file with extended functionality.
 
-**Primary file:** `sort-Xcode-project-file.pl` (~593 lines)
-**Language:** Perl 5 (requires 5.10+; tested with 5.34)
+Available in two versions (producing byte-for-byte identical output):
+- **Python 3** (primary): `sort-Xcode-project-file.py` (~423 lines)
+- **Perl 5** (legacy): `sort-Xcode-project-file.pl` (~593 lines)
+
 **License:** MIT (file headers carry BSD from original WebKit; LICENSE file is MIT)
 
 ## Build / Run / Test Commands
 
-### Run the script
+### Run the script (Python — primary)
+```bash
+python3 sort-Xcode-project-file.py <path-to-project.pbxproj>
+python3 sort-Xcode-project-file.py <path-to-project.xcodeproj>
+python3 sort-Xcode-project-file.py --case-insensitive <path>
+python3 sort-Xcode-project-file.py --check <path>         # CI mode: exit 0 if sorted
+```
+
+### Run the script (Perl — legacy)
 ```bash
 perl sort-Xcode-project-file.pl <path-to-project.pbxproj>
-perl sort-Xcode-project-file.pl <path-to-project.xcodeproj>
-perl sort-Xcode-project-file.pl --case-insensitive <path>
-```
-
-### Verify syntax (no formal test suite exists)
-```bash
-perl -c sort-Xcode-project-file.pl          # Compile check
-perl -w sort-Xcode-project-file.pl --help    # Verify CLI parsing
-```
-
-### Lint
-```bash
-# No linter configured. For optional static analysis:
-# perlcritic --severity 4 sort-Xcode-project-file.pl
 ```
 
 ### Tests
-There is **no test suite**. The project has no test directory, no test files, and no test harness. Validation is manual — run the script against a `.pbxproj` file and inspect output.
-
-If adding tests, use Perl's built-in `Test::More`:
 ```bash
-perl -Ilib t/some_test.t           # Run single test
-prove t/                           # Run all tests (if created)
+python3 -m unittest discover tests -v    # Run all 54 tests
+python3 tests/cross_validate.py          # Cross-validate Perl vs Python output (requires perl)
+```
+
+### Verify syntax
+```bash
+python3 -c "import py_compile; py_compile.compile('sort-Xcode-project-file.py', doraise=True)"
+perl -c sort-Xcode-project-file.pl
 ```
 
 ## Architecture
 
+### Python version (`sort-Xcode-project-file.py`)
+
 ```
-sort-Xcode-project-file.pl   # Everything lives here
-├── CLI parsing               # Getopt::Long (lines 107-141)
-├── Main loop                 # Iterates ARGV files (lines 143-156)
-├── sort_project_file()       # Core: read → parse → sort → write (lines 176-243)
-├── read_array_entries()      # Extract array contents between ( and ); (lines 265-280)
-├── extract_filename()        # Regex-based filename extraction (lines 299-302)
-├── is_directory()            # Heuristic: no extension = directory (lines 328-344)
-├── sortChildrenByFileName()  # Comparator: dirs first, then natural sort (lines 366-379)
-├── sortFilesByFileName()     # Comparator: natural sort only (lines 400-409)
-├── natural_cmp()             # Natural (alphanumeric) string comparison (lines 450-498)
-├── uniq()                    # Deduplicate preserving order (lines 531-534)
-├── read_file()               # Slurp file to string (lines 547-553)
-└── write_file()              # Atomic write via temp file (lines 569-592)
+sort-Xcode-project-file.py    # Everything lives here
+├── CLI parsing                # argparse (lines 42-110)
+├── Main loop                  # Iterates args.files (lines 112-140)
+├── Regex patterns             # re.compile with re.VERBOSE (lines 54-90)
+├── sort_project_file()        # Core: read → parse → sort → write (lines 150-230)
+├── read_array_entries()       # Extract array contents between ( and ); (lines 240-260)
+├── extract_filename()         # Regex-based filename extraction (lines 270-280)
+├── is_directory()             # Heuristic: no extension = directory (lines 290-310)
+├── children_sort_key()        # Sort key: dirs first, then natural sort (lines 320-330)
+├── files_sort_key()           # Sort key: natural sort only (lines 340-350)
+├── natural_sort_key()         # Natural (alphanumeric) sort key (lines 360-390)
+├── uniq()                     # Deduplicate preserving order (lines 400-410)
+└── write_file()               # Atomic write via tempfile + os.replace() (lines 415-423)
 ```
 
-### Key Regex Patterns (compiled, top of file)
+### Test suite (`tests/`)
+
+```
+tests/
+├── __init__.py                    # Package marker
+├── _helpers.py                    # importlib-based import of hyphenated script name
+├── test_natural_sort.py           # 15 tests for natural_sort_key()
+├── test_is_directory.py           # 7 tests for is_directory()
+├── test_dedup.py                  # 7 tests for uniq()
+├── test_extract_filename.py       # 5 tests for extract_filename()
+├── test_sort_project.py           # 9 integration tests (sort, idempotency, check mode)
+├── test_cli.py                    # 12 CLI tests via subprocess (exit codes, flags)
+├── cross_validate.py              # Standalone cross-validation script (Perl vs Python)
+└── fixtures/
+    ├── basic_unsorted.pbxproj     # Unsorted input fixture
+    ├── basic_sorted.pbxproj       # Expected output (case-sensitive)
+    ├── basic_ci_sorted.pbxproj    # Expected output (case-insensitive)
+    ├── with_frameworks.pbxproj    # PBXFrameworksBuildPhase fixture
+    ├── with_frameworks_sorted.pbxproj
+    ├── with_duplicates.pbxproj    # Duplicate entries fixture
+    ├── with_duplicates_sorted.pbxproj
+    ├── empty_arrays.pbxproj       # Empty arrays fixture
+    └── empty_arrays_sorted.pbxproj
+```
+
+### Key Regex Patterns (compiled, module level)
 | Variable | Matches |
 |---|---|
-| `$REGEX_ARRAY_START` | `children = (`, `buildConfigurations = (`, `targets = (`, etc. |
-| `$REGEX_FILES_ARRAY` | `files = (` |
-| `$REGEX_CHILD_ENTRY` | `HEXID /* Name */,` |
-| `$REGEX_FILE_ENTRY` | `HEXID /* Name in BuildPhase */,` |
+| `REGEX_ARRAY_START` | `children = (`, `buildConfigurations = (`, `targets = (`, etc. |
+| `REGEX_FILES_ARRAY` | `files = (` |
+| `REGEX_CHILD_ENTRY` | `HEXID /* Name */,` |
+| `REGEX_FILE_ENTRY` | `HEXID /* Name in BuildPhase */,` |
 
 ### Sorting Rules
 - **children/targets/configs/packages**: Directories sort before files; natural sort within groups
@@ -70,126 +96,115 @@ sort-Xcode-project-file.pl   # Everything lives here
 - **PBXFrameworksBuildPhase**: Preserved as-is (NOT sorted — order matters)
 - **Duplicates**: Removed before sorting (first occurrence kept)
 
-## Code Style Guidelines
+## Code Style Guidelines (Python)
+
+### Imports — Stdlib Only
+Only use Python standard library modules. Current imports:
+- `argparse`, `os`, `re`, `sys`, `tempfile`, `pathlib.Path`
+
+Do NOT add pip dependencies. This script must run with stock Python on macOS.
+
+### Naming Conventions
+| Element | Convention | Examples |
+|---|---|---|
+| Functions | `snake_case` | `sort_project_file`, `write_file`, `extract_filename` |
+| Sort key functions | `snake_case` | `children_sort_key`, `files_sort_key` |
+| Local variables | `snake_case` | `project_file`, `end_marker` |
+| Constants/regex | `UPPER_SNAKE_CASE` | `REGEX_ARRAY_START`, `KNOWN_FILES` |
+| Module-level sets | `UPPER_SNAKE_CASE` | `KNOWN_FILES`, `KNOWN_FILES_LC` |
+
+### Regex Style
+- Use `re.compile(..., re.VERBOSE)` stored in module-level constants
+- Use verbose mode with comments explaining each part
+- Match the same patterns as the Perl version exactly
+
+### Documentation Style
+Every function should have a docstring:
+```python
+def function_name(param: type) -> return_type:
+    """Brief description.
+
+    Purpose:
+        What it does and why.
+
+    Args:
+        param: Description.
+
+    Returns:
+        What is returned.
+    """
+```
+
+### Error Handling
+- Use `sys.exit(1)` for fatal errors with message to stderr
+- Use `try/except/finally` for recoverable operations (see `write_file`)
+- Use `print(..., file=sys.stderr)` for warnings, gated by `print_warnings` flag
+- Clean up temp files in error paths
+
+### File I/O
+- Read: `Path.read_text(encoding="utf-8")`
+- Write: **always atomic** — write to temp file, then `os.replace()` over original
+- Use `tempfile.mkstemp()` for temp files; handle cleanup on failure
+- `os.replace()` is truly atomic on POSIX (no `unlink` needed)
+
+### Formatting
+- Indentation: 4 spaces (no tabs)
+- Line length: soft limit ~100 characters
+- Blank line between logical sections
+- Separator comments (`# ---...---`) between function groups
+- Type hints using Python 3.9+ built-in generics (`list[str]`, not `List[str]`)
+
+## Code Style Guidelines (Perl — legacy)
 
 ### Perl Pragmas (mandatory)
 ```perl
 use strict;
 use warnings;
 ```
-Every file must begin with these. No exceptions.
 
 ### Modules — Core Only
-Only use Perl core modules. Current imports:
-- `File::Basename`, `File::Spec`, `File::Temp`, `Getopt::Long`
-
-Do NOT add CPAN dependencies. This script must run with a stock Perl installation.
+Only use Perl core modules: `File::Basename`, `File::Spec`, `File::Temp`, `Getopt::Long`
 
 ### Naming Conventions
 | Element | Convention | Examples |
 |---|---|---|
-| Subroutines | `snake_case` | `sort_project_file`, `read_file`, `extract_filename` |
-| Sort comparators | `camelCase` (legacy) | `sortChildrenByFileName`, `sortFilesByFileName` |
-| Local variables | `$camelCase` | `$projectFile`, `$aFileName`, `$endMarker` |
+| Subroutines | `snake_case` | `sort_project_file`, `read_file` |
+| Sort comparators | `camelCase` (legacy) | `sortChildrenByFileName` |
+| Local variables | `$camelCase` | `$projectFile`, `$aFileName` |
 | Global flags | `$UPPER_CASE` | `$CASE_INSENSITIVE` |
-| Constants/regex | `$REGEX_UPPER_CASE` | `$REGEX_ARRAY_START`, `$REGEX_FILE_ENTRY` |
-| Hashes (lookup) | `%camelCase` | `%isFile`, `%isFile_lc` |
-
-**Note:** The codebase has two naming styles for subs (snake_case for newer, camelCase for sort comparators). New code should use `snake_case`. Do not rename existing comparators — they follow Perl sort prototype conventions.
-
-### Regex Style
-- Use compiled regex (`qr/.../x`) stored in package-level variables
-- Use `/x` verbose mode with comments explaining each part
-- Use named semantic groups where helpful
-- Escape special characters properly in comments
-
-Example from codebase:
-```perl
-my $REGEX_CHILD_ENTRY = qr/^
-    \s*                             # optional leading whitespace
-    [A-Fa-f0-9]{24}                 # Xcode object ID - 24 hex chars
-    \s+ \/\* \s*                    # space and comment start
-    (.+?)                           # capture filename - non-greedy
-    \s* \*\/ ,                      # comment end and trailing comma
-    $                               # end of line
-/x;
-```
-
-### Documentation Style
-Every subroutine must have a block comment header with:
-```perl
-# -----------------------------------------------------------------------------
-# Brief description
-#
-# Purpose:
-#   What it does and why
-#
-# Parameters:
-#   $param - description
-#
-# Returns:
-#   What is returned
-#
-# Examples:
-#   function_call("input") => "output"
-# -----------------------------------------------------------------------------
-```
-
-### Error Handling
-- Use `die` with descriptive messages for fatal errors: `die "Could not open $file: $!";`
-- Use `eval { ... }; if ($@) { ... }` for recoverable operations (see `write_file`)
-- Use `warn` / `print STDERR` for non-fatal warnings, gated by `$printWarnings`
-- Clean up resources (close filehandles, delete temp files) in error paths
-
-### File I/O
-- Read: slurp entire file via `local $/` idiom
-- Write: **always atomic** — write to temp file, then rename over original
-- Use `File::Temp` for temp files; handle cleanup on failure
-
-### Formatting
-- Indentation: 4 spaces (no tabs)
-- Opening brace for subs: same line or next line (both present in codebase; prefer same line for new code)
-- Line length: soft limit ~100 characters
-- Blank line between logical sections
-- Separator comments (`# ---...---`) between subroutines
-
-### Sort Comparator Prototypes
-Sort comparators use the `($$)` prototype:
-```perl
-sub sortChildrenByFileName($$) {
-    my ($a, $b) = @_;
-    ...
-}
-```
-This is required for Perl's `sort` function. Do not remove the prototype.
+| Constants/regex | `$REGEX_UPPER_CASE` | `$REGEX_ARRAY_START` |
 
 ## Critical Constraints
 
-1. **No CPAN dependencies** — must work with stock Perl on macOS
+1. **No external dependencies** — must work with stock Python/Perl on macOS
 2. **PBXFrameworksBuildPhase must never be sorted** — framework link order is significant
 3. **Atomic file writes** — never leave a `.pbxproj` in a corrupted state
 4. **Backward compatible** — default behavior (case-sensitive) must match original WebKit script
 5. **The script modifies files in-place** — always test against a copy
+6. **Output parity** — Python and Perl versions must produce byte-for-byte identical output
 
 ## CLI Flags Reference
 
-| Flag | Effect |
-|---|---|
-| `--case-insensitive` | Case-insensitive natural sort |
-| `--case-sensitive` | Force case-sensitive (default) |
-| `-w` / `--no-warnings` | Suppress warning messages |
-| `-h` / `--help` | Show usage and exit |
+| Flag | Python | Perl | Effect |
+|---|---|---|---|
+| `--case-insensitive` | ✅ | ✅ | Case-insensitive natural sort |
+| `--case-sensitive` | ✅ | ✅ | Force case-sensitive (default) |
+| `--check` | ✅ | ❌ | Exit 0 if sorted, exit 1 if not (no modification) |
+| `--version` | ✅ | ❌ | Show version and exit |
+| `-w` / `--no-warnings` | ✅ | ✅ | Suppress warning messages |
+| `-h` / `--help` | ✅ | ✅ | Show usage and exit |
 
 ## Known Limitations & Improvement Plan
 
-See [`docs/improvement-plan.md`](docs/improvement-plan.md) for a prioritized list of improvements. Key items:
+See [`docs/improvement-plan.md`](docs/improvement-plan.md) for a prioritized list of improvements.
 
-- **No test suite** — the highest priority gap; all changes should be validated manually until tests exist
-- **No dry-run / check mode** — the script always modifies files in-place; no way to preview or use in CI lint checks
-- **`write_file` is not truly atomic** — the current `unlink` + `rename` sequence has a data-loss window (fix: remove the `unlink`)
-- **`%isFile` known files list is incomplete** — only `create_hash_table`; common extension-less files (Makefile, Podfile, etc.) are misclassified as directories
+Remaining items:
+- **Expand `KNOWN_FILES` set** — only `create_hash_table`; common extension-less files (Makefile, Podfile, etc.) are misclassified as directories
+- **Stdin/stdout pipeline support** — accept `-` as filename for pipeline usage
+- **Feedback on changes** — summary of what was sorted/deduped
+- **Recursive directory search** — `--recursive` flag for monorepos
 
-When implementing any item from the plan, update the plan file to reflect completion.
+See [`docs/migration-plan.md`](docs/migration-plan.md) for the Perl → Python migration plan and progress.
 
 ## Commit Style
 
@@ -200,5 +215,6 @@ feat: enhance sorting functionality with case-insensitive option
 refactor: improve variable scope management and extract helper functions
 docs: add comprehensive POD documentation and improve inline comments
 style: standardize code style for consistency
+test: add comprehensive test suite for Python port
 ```
-Prefixes: `fix:`, `feat:`, `refactor:`, `docs:`, `style:`
+Prefixes: `fix:`, `feat:`, `refactor:`, `docs:`, `style:`, `test:`

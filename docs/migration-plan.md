@@ -394,6 +394,6 @@ python3 $sorter $fullFilePath
 | 19 | Integration tests: end-to-end sorting | ✅ |
 | 20 | Integration tests: CLI flags and exit codes | ✅ |
 | 21 | Cross-validation: Perl vs Python output diff | ✅ |
-| 22 | Update README | ☐ |
-| 23 | Update AGENTS.md | ☐ |
-| 24 | Update improvement-plan.md | ☐ |
+| 22 | Update README | ✅ |
+| 23 | Update AGENTS.md | ✅ |
+| 24 | Update improvement-plan.md | ✅ |

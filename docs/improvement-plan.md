@@ -4,57 +4,23 @@ Analysis date: 2026-02-14
 
 ## 🔴 High Value
 
-### 1. Add Test Suite
+### 1. ~~Add Test Suite~~ ✅ Completed
 
-**Problem:** A tool that modifies `.pbxproj` files in-place has zero automated tests. One regression can break a team's Xcode project.
-
-**Scope:**
-- Create `t/` directory with `Test::More`-based tests
-- Prepare small `.pbxproj` fixture files covering edge cases
-- Test cases needed:
-  - Sorting correctness for each array type (children, files, targets, buildConfigurations, packageProductDependencies, packageReferences)
-  - PBXFrameworksBuildPhase is preserved (NOT sorted)
-  - Duplicate removal logic
-  - `natural_cmp` edge cases: empty strings, pure numbers, leading zeros, mixed case
-  - `--case-insensitive` flag behavior
-  - `is_directory` heuristic with known files list
-  - Atomic write cleanup on failure
-  - Already-sorted file produces identical output (idempotency)
-- Run with: `prove t/`
-
-**Effort:** Medium — need to craft realistic fixture files
+Implemented in Python port (Phase 4): 54 unit/integration tests + cross-validation script. Run with `python3 -m unittest discover tests -v`.
 
 ---
 
-### 2. Check Mode
+### 2. ~~Check Mode~~ ✅ Completed
 
-**Problem:** No way to use in CI pipelines to enforce sorted project files.
-
-**Proposal:**
-- `--check`: exit 0 if already sorted, exit 1 if changes needed (CI-friendly)
+Implemented in Python port: `--check` flag exits 0 if sorted, 1 if unsorted. No file modification.
 
 `--dry-run` was considered but rejected — `.pbxproj` files are thousands of lines long, dumping sorted output to stdout is not useful for human review. `--check` answers the only question that matters: "does this file need sorting?"
 
-**Effort:** Low — the core logic already produces sorted output in `@output`; just compare against original
-
 ---
 
-### 3. Fix `write_file` Atomic Write
+### 3. ~~Fix `write_file` Atomic Write~~ ✅ Completed
 
-**Problem (line 582-583):**
-```perl
-unlink($file) or die "Could not delete $file: $!";
-rename($tempFile, $file) or die "Could not rename $tempFile to $file: $!";
-```
-If the process crashes between `unlink` and `rename`, the original file is gone. On POSIX, `rename()` atomically replaces the target — the `unlink` is unnecessary and creates a data-loss window.
-
-**Fix:**
-```perl
-rename($tempFile, $file) or die "Could not rename $tempFile to $file: $!";
-```
-Remove the `unlink` line entirely.
-
-**Effort:** Trivial — one line deletion, but high impact on safety
+Python port uses `os.replace()` (truly atomic on POSIX) — no `unlink` before `rename`. Also includes `os.fsync()` and `BaseException` cleanup.
 
 ---
 
@@ -97,31 +63,17 @@ Brewfile Dangerfile LICENSE README CHANGELOG
 
 ---
 
-### 7. Better Error Message for Missing Files
+### 7. ~~Better Error Message for Missing Files~~ ✅ Completed
 
-**Problem (line 143-154):** If a non-existent path is passed, the error surfaces from `read_file` as a low-level `Could not open ...` message.
-
-**Fix:** Validate file existence before calling `sort_project_file`:
-```perl
-unless (-f $projectFile) {
-    print STDERR "ERROR: File not found: $projectFile\n";
-    next;
-}
-```
-
-**Effort:** Trivial
+Python port validates file existence with `Path.exists()` before processing, with a clear error message.
 
 ---
 
 ## 🟢 Low Value / Nice to Have
 
-### 8. Verify PBXFrameworksBuildPhase Files Array Bypass
+### 8. Verify PBXFrameworksBuildPhase Files Array Bypass ✅ Covered
 
-**Problem:** The `files = (` regex is checked before `Begin PBXFrameworksBuildPhase`, but PBXFrameworksBuildPhase sections are handled by passthrough (the entire section block is copied verbatim). In practice this works because pbxproj format always has the section header before its contents. But there's no test proving this.
-
-**Action:** Add a test with a PBXFrameworksBuildPhase fixture containing a `files = (` array to confirm it's not sorted.
-
-**Effort:** Low (just a test case)
+Test `test_frameworks_preserved` in `tests/test_sort_project.py` confirms PBXFrameworksBuildPhase `files` arrays are not sorted.
 
 ---
 
@@ -133,27 +85,23 @@ unless (-f $projectFile) {
 
 ---
 
-### 10. Version Flag
+### 10. ~~Version Flag~~ ✅ Completed
 
-**Problem:** No `--version` flag. Makes bug reports and hook debugging harder.
-
-**Proposal:** Add `$VERSION` variable and `--version` CLI flag.
-
-**Effort:** Trivial
+Python port includes `--version` flag (currently `0.1.0`).
 
 ---
 
 ## Priority Order (Recommended)
 
-| Order | Item | Why |
-|-------|------|-----|
-| 1 | #3 Fix atomic write | One-line fix, eliminates data-loss risk |
-| 2 | #7 Better error for missing files | Trivial, improves UX |
-| 3 | #4 Expand `%isFile` | Trivial, fixes misclassification |
-| 4 | #1 Add test suite | Foundation for all future changes |
-| 5 | #2 Dry-run / check mode | Enables CI adoption, lowers barrier |
-| 6 | #10 Version flag | Trivial, good practice |
-| 7 | #6 Feedback on changes | Better UX |
-| 8 | #5 Stdin/stdout support | Flexibility |
-| 9 | #8 PBXFrameworksBuildPhase test | Safety verification |
-| 10 | #9 Recursive search | Nice to have |
+| Order | Item | Status |
+|-------|------|--------|
+| 1 | #3 Fix atomic write | ✅ Completed |
+| 2 | #7 Better error for missing files | ✅ Completed |
+| 3 | #4 Expand `%isFile` / `KNOWN_FILES` | Open |
+| 4 | #1 Add test suite | ✅ Completed |
+| 5 | #2 Check mode | ✅ Completed |
+| 6 | #10 Version flag | ✅ Completed |
+| 7 | #6 Feedback on changes | Open |
+| 8 | #5 Stdin/stdout support | Open |
+| 9 | #8 PBXFrameworksBuildPhase test | ✅ Covered |
+| 10 | #9 Recursive search | Open |
