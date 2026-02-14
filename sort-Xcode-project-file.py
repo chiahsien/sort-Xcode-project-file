@@ -1,43 +1,18 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Nelson. See LICENSE file for details.
+#
+# Based on WebKit's sort-Xcode-project-file (BSD-licensed).
 
-# Copyright (C) 2026 Nelson.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions
-# are met:
-#
-# 1.  Redistributions of source code must retain the above copyright
-#     notice, this list of conditions and the following disclaimer.
-# 2.  Redistributions in binary form must reproduce the above copyright
-#     notice, this list of conditions and the following disclaimer in the
-#     documentation and/or other materials provided with the distribution.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDER AND CONTRIBUTORS "AS IS" AND ANY
-# EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY
-# DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-# ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
-# THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+"""Sort sections of Xcode project.pbxproj files to reduce merge conflicts.
 
-# Script to sort certain sections and arrays in Xcode project.pbxproj files.
-# Behavior and flags:
-# - Default sorting is case-sensitive (preserves original behavior).
-# - Optionally enable case-insensitive sorting with --case-insensitive.
-# - The case-insensitive flag affects both natural sorting and directory-vs-file lookups.
-#
-# Use with:
-#   --case-insensitive    enable case-insensitive sorting (default: disabled)
-#   --case-sensitive      explicit alias to force case-sensitive sorting
-#   --check               exit 0 if sorted, exit 1 if unsorted (no file modification)
-#   --version             show version and exit
-#   -h, --help            show help
-#   -w, --no-warnings     suppress warnings
-#
-# NOTE: Build-phase order-sensitive arrays (e.g., buildPhases) are NOT sorted by this script.
+Sorts children, files, targets, buildConfigurations, packageProductDependencies,
+and packageReferences arrays using natural (human) sort order. Removes duplicate
+entries and preserves PBXFrameworksBuildPhase order (link order matters).
+
+Default sorting is case-sensitive. Use ``--case-insensitive`` to fold case.
+Build-phase order-sensitive arrays (e.g. buildPhases) are NOT sorted.
+"""
 
 import argparse
 import os
@@ -46,7 +21,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 # ---------------------------------------------------------------------------
 # Compiled regex patterns
@@ -119,12 +94,15 @@ Notes:
 
 # ---------------------------------------------------------------------------
 # Natural sort key
-#
-# Tokenizes a string into digit/non-digit runs and builds a comparison key.
-# Digit runs compare numerically; ties broken by string length (shorter first,
-# so "1" < "01" < "001"). Non-digit runs compare lexically (or case-folded).
 # ---------------------------------------------------------------------------
 def natural_sort_key(s: str, case_insensitive: bool = False) -> list[tuple]:
+    """Build a sort key that orders strings in natural (human) order.
+
+    Tokenizes *s* into digit and non-digit runs.  Digit runs compare
+    numerically; ties are broken by string length so that fewer leading
+    zeros sort first (``"1" < "01" < "001"``).  Non-digit runs compare
+    lexicographically (or case-folded when *case_insensitive* is True).
+    """
     tokens = _TOKENIZE.findall(s) if s else []
     key: list[tuple] = []
     for token in tokens:
@@ -137,11 +115,17 @@ def natural_sort_key(s: str, case_insensitive: bool = False) -> list[tuple]:
 
 
 def extract_filename(line: str, pattern: re.Pattern) -> str:
+    """Return the captured filename from *line* using *pattern*, or ``""``."""
     m = pattern.search(line)
     return m.group(1) if m else ""
 
 
 def is_directory(filename: str, case_insensitive: bool = False) -> bool:
+    """Heuristic: a name without a file extension is treated as a directory.
+
+    Names listed in ``_KNOWN_FILES`` are exceptions (known to be files
+    despite having no extension, e.g. ``create_hash_table``).
+    """
     if "." in filename:
         return False
     lookup = _KNOWN_FILES_LC if case_insensitive else _KNOWN_FILES
@@ -150,6 +134,7 @@ def is_directory(filename: str, case_insensitive: bool = False) -> bool:
 
 
 def uniq(items: list[str]) -> list[str]:
+    """Deduplicate *items* by exact string match, preserving first occurrence order."""
     seen: set[str] = set()
     result: list[str] = []
     for item in items:
@@ -160,11 +145,13 @@ def uniq(items: list[str]) -> list[str]:
 
 
 def children_sort_key(line: str, case_insensitive: bool = False) -> tuple:
+    """Sort key for children/targets/configs: directories first, then natural sort."""
     name = extract_filename(line, REGEX_CHILD_ENTRY)
     return (not is_directory(name, case_insensitive), natural_sort_key(name, case_insensitive))
 
 
 def files_sort_key(line: str, case_insensitive: bool = False) -> tuple:
+    """Sort key for build-phase file entries: natural sort only."""
     name = extract_filename(line, REGEX_FILE_ENTRY)
     return tuple(natural_sort_key(name, case_insensitive))
 
@@ -176,6 +163,14 @@ def read_array_entries(
     project_file: Path,
     array_name: str,
 ) -> tuple[list[str], str, int]:
+    """Collect array body lines from *start_index* until *end_marker* is found.
+
+    Returns:
+        A tuple of (entries, closing_line, next_index).
+
+    Raises:
+        RuntimeError: If EOF is reached before the closing marker.
+    """
     entries: list[str] = []
     i = start_index
     escaped_marker = re.escape(end_marker)
@@ -193,12 +188,14 @@ def read_array_entries(
 
 
 # ---------------------------------------------------------------------------
-# Atomic file write using temp file + os.replace()
-#
-# os.replace() is atomic on POSIX — no unlink before rename needed
-# (fixes the data-loss window in the original Perl unlink+rename sequence).
+# Atomic file write
 # ---------------------------------------------------------------------------
 def write_file(target: Path, content: str) -> None:
+    """Write *content* to *target* atomically via a temp file and ``os.replace()``.
+
+    On POSIX, ``os.replace()`` is atomic — there is no window where the
+    target file is missing.  The temp file is cleaned up on any failure.
+    """
     fd, tmp_path = tempfile.mkstemp(
         prefix=f".{target.name}.",
         dir=target.parent,
@@ -224,6 +221,11 @@ def sort_project_file(
     check_only: bool = False,
     print_warnings: bool = True,
 ) -> bool:
+    """Sort arrays in *project_file* in-place and return whether it was already sorted.
+
+    When *check_only* is True the file is not modified; the return value
+    indicates whether the content is already in sorted order.
+    """
     content = project_file.read_text(encoding="utf-8")
     lines = content.split("\n")
 
@@ -233,9 +235,9 @@ def sort_project_file(
     while i < len(lines):
         line = lines[i]
 
-        if REGEX_FILES_ARRAY.match(line):
-            indent_match = REGEX_FILES_ARRAY.match(line)
-            indent = indent_match.group(1) if indent_match else ""
+        files_match = REGEX_FILES_ARRAY.match(line)
+        if files_match:
+            indent = files_match.group(1)
             output.append(line)
             i += 1
 
@@ -252,11 +254,12 @@ def sort_project_file(
             )
             output.extend(sorted_lines)
             output.append(end_line)
+            continue
 
-        elif REGEX_ARRAY_START.match(line):
-            m = REGEX_ARRAY_START.match(line)
-            indent = m.group(1) if m else ""
-            array_name = m.group(2) if m else ""
+        array_match = REGEX_ARRAY_START.match(line)
+        if array_match:
+            indent = array_match.group(1)
+            array_name = array_match.group(2)
             output.append(line)
             i += 1
 
@@ -273,9 +276,10 @@ def sort_project_file(
             )
             output.extend(sorted_lines)
             output.append(end_line)
+            continue
 
         # PBXFrameworksBuildPhase: pass through without sorting (order matters)
-        elif "Begin PBXFrameworksBuildPhase section" in line:
+        if "Begin PBXFrameworksBuildPhase section" in line:
             output.append(line)
             i += 1
             while i < len(lines):
@@ -284,10 +288,10 @@ def sort_project_file(
                 i += 1
                 if "End PBXFrameworksBuildPhase section" in fw_line:
                     break
+            continue
 
-        else:
-            output.append(line)
-            i += 1
+        output.append(line)
+        i += 1
 
     sorted_content = "\n".join(output)
 
@@ -301,6 +305,7 @@ def sort_project_file(
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Create the CLI argument parser."""
     parser = argparse.ArgumentParser(
         prog="sort-Xcode-project-file.py",
         add_help=False,  # We handle --help ourselves to match Perl exit code
@@ -320,7 +325,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="explicit alias to force case-sensitive sorting",
     )
 
-    # Warnings: -w / --no-warnings suppresses (default: warnings ON)
     parser.add_argument(
         "-w", "--no-warnings",
         action="store_true",
@@ -328,7 +332,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="suppress warnings (default: show warnings)",
     )
 
-    # Custom --help: Perl prints to stderr and exits 1 (argparse defaults to stdout/exit 0)
+    # Custom --help: prints to stderr and exits 1 (matching Perl behavior)
     parser.add_argument(
         "-h", "--help",
         action="store_true",
@@ -336,7 +340,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="show this help message",
     )
 
-    # Check mode: exit 0 if sorted, exit 1 if unsorted (no file modification)
     parser.add_argument(
         "--check",
         action="store_true",
@@ -361,6 +364,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    """Entry point. Parse arguments, process each file, and return an exit code."""
     parser = build_parser()
     args = parser.parse_args()
 

@@ -198,14 +198,6 @@ Only use Perl core modules: `File::Basename`, `File::Spec`, `File::Temp`, `Getop
 
 See [`docs/improvement-plan.md`](docs/improvement-plan.md) for a prioritized list of improvements.
 
-Remaining items:
-- **Expand `KNOWN_FILES` set** — only `create_hash_table`; common extension-less files (Makefile, Podfile, etc.) are misclassified as directories
-- **Stdin/stdout pipeline support** — accept `-` as filename for pipeline usage
-- **Feedback on changes** — summary of what was sorted/deduped
-- **Recursive directory search** — `--recursive` flag for monorepos
-
-See [`docs/migration-plan.md`](docs/migration-plan.md) for the Perl → Python migration plan and progress.
-
 ## Commit Style
 
 Based on git history, use conventional commits:
