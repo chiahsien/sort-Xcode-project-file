@@ -1,0 +1,57 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		AABBCCDD00112233EEFF0001 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD00112233EEFF1001; };
+		AABBCCDD00112233EEFF0002 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD00112233EEFF1002; };
+		AABBCCDD00112233EEFF0003 /* Main.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD00112233EEFF1003; };
+		AABBCCDD00112233EEFF0004 /* zebra.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD00112233EEFF1004; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		AABBCCDD00112233EEFFBB01 = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AABBCCDD00112233EEFFCC03 /* Zebra.framework in Frameworks */,
+				AABBCCDD00112233EEFFCC01 /* Alpha.framework in Frameworks */,
+				AABBCCDD00112233EEFFCC02 /* Beta.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		AABBCCDD00112233EEFF2001 = {
+			isa = PBXGroup;
+			children = (
+				AABBCCDD00112233EEFF3001 /* AppDelegate.swift */,
+				AABBCCDD00112233EEFF3002 /* Main.swift */,
+				AABBCCDD00112233EEFF3003 /* zebra.swift */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXSourcesBuildPhase section */
+		AABBCCDD00112233EEFF7001 = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AABBCCDD00112233EEFF0004 /* zebra.swift in Sources */,
+				AABBCCDD00112233EEFF0001 /* ViewController.swift in Sources */,
+				AABBCCDD00112233EEFF0003 /* Main.swift in Sources */,
+				AABBCCDD00112233EEFF0002 /* AppDelegate.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+	};
+	rootObject = AABBCCDD00112233EEFFAAAA;
+}

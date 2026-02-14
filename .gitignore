@@ -50,4 +50,8 @@ Temporary Items
 # Support for Project snippet scope
 !.vscode/*.code-snippets
 
+### Python ###
+__pycache__/
+*.pyc
+
 # End of https://www.toptal.com/developers/gitignore/api/macos,visualstudiocode

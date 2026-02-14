@@ -1,0 +1,103 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		AABBCCDD00112233EEFF0001 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD00112233EEFF1001; };
+		AABBCCDD00112233EEFF0002 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD00112233EEFF1002; };
+		AABBCCDD00112233EEFF0003 /* Main.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD00112233EEFF1003; };
+		AABBCCDD00112233EEFF0004 /* zebra.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD00112233EEFF1004; };
+/* End PBXBuildFile section */
+
+/* Begin PBXGroup section */
+		AABBCCDD00112233EEFF2001 = {
+			isa = PBXGroup;
+			children = (
+				AABBCCDD00112233EEFF3005 /* zebra.swift */,
+				AABBCCDD00112233EEFF3003 /* Models */,
+				AABBCCDD00112233EEFF3001 /* ViewController.swift */,
+				AABBCCDD00112233EEFF3004 /* AppDelegate.swift */,
+				AABBCCDD00112233EEFF3002 /* Resources */,
+			);
+			sourceTree = "<group>";
+		};
+		AABBCCDD00112233EEFF2002 = {
+			isa = PBXGroup;
+			children = (
+				AABBCCDD00112233EEFF4003 /* file10.m */,
+				AABBCCDD00112233EEFF4001 /* file2.m */,
+				AABBCCDD00112233EEFF4002 /* File1.m */,
+			);
+			name = Utilities;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		AABBCCDD00112233EEFF5001 = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AABBCCDD00112233EEFF6001;
+			buildPhases = (
+				AABBCCDD00112233EEFF7001 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MyApp;
+			productName = MyApp;
+			productReference = AABBCCDD00112233EEFF8001;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXSourcesBuildPhase section */
+		AABBCCDD00112233EEFF7001 = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AABBCCDD00112233EEFF0004 /* zebra.swift in Sources */,
+				AABBCCDD00112233EEFF0001 /* ViewController.swift in Sources */,
+				AABBCCDD00112233EEFF0003 /* Main.swift in Sources */,
+				AABBCCDD00112233EEFF0002 /* AppDelegate.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		AABBCCDD00112233EEFF9001 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Release;
+		};
+		AABBCCDD00112233EEFF9002 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		AABBCCDD00112233EEFF6001 = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AABBCCDD00112233EEFF9001 /* Release */,
+				AABBCCDD00112233EEFF9002 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+	};
+	rootObject = AABBCCDD00112233EEFFAAAA;
+}
