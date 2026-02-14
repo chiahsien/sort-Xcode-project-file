@@ -32,6 +32,20 @@ class TestIsDirectory(unittest.TestCase):
         self.assertFalse(sorter.is_directory("file.m"))
         self.assertFalse(sorter.is_directory("file.h"))
 
+    def test_known_files_not_directory(self):
+        for name in ("Makefile", "Podfile", "Cartfile", "Gemfile", "Rakefile",
+                      "Fastfile", "Brewfile", "Dangerfile", "LICENSE",
+                      "README", "CHANGELOG"):
+            with self.subTest(name=name):
+                self.assertFalse(sorter.is_directory(name))
+
+    def test_known_files_ci_all(self):
+        for name in ("makefile", "podfile", "license", "readme", "changelog"):
+            with self.subTest(name=name):
+                self.assertFalse(
+                    sorter.is_directory(name, case_insensitive=True)
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

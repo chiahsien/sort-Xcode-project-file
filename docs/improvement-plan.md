@@ -26,40 +26,21 @@ Python port uses `os.replace()` (truly atomic on POSIX) — no `unlink` before `
 
 ## 🟡 Medium Value
 
-### 4. Expand `%isFile` Known Files List
+### 4. ~~Expand `%isFile` Known Files List~~ ✅ Completed
 
-**Problem:** Only `create_hash_table` is listed. Common extension-less files in iOS/macOS projects are misclassified as directories.
-
-**Missing entries (at minimum):**
-```
-Makefile Podfile Cartfile Gemfile Rakefile Fastfile
-Brewfile Dangerfile LICENSE README CHANGELOG
-```
-
-**Effort:** Trivial
+Expanded `_KNOWN_FILES` from 1 entry to 12: `Brewfile`, `Cartfile`, `CHANGELOG`, `create_hash_table`, `Dangerfile`, `Fastfile`, `Gemfile`, `LICENSE`, `Makefile`, `Podfile`, `Rakefile`, `README`.
 
 ---
 
-### 5. Stdin/Stdout Pipeline Support
+### 5. ~~Stdin/Stdout Pipeline Support~~ ✅ Completed
 
-**Problem:** Can't use in pipelines: `cat project.pbxproj | sort-Xcode-project-file.py > sorted.pbxproj`
-
-**Proposal:** Accept `-` as a filename to read from stdin and write to stdout. Pairs naturally with `--dry-run`.
-
-**Effort:** Low
+Accept `-` as a filename to read from stdin and write to stdout. Works with `--check` mode. Core sorting logic extracted into `sort_project_content()` pure function.
 
 ---
 
-### 6. Feedback on Changes
+### 6. ~~Feedback on Changes~~ ❌ Cancelled
 
-**Problem:** The script is completely silent on success. Users don't know if anything actually changed, or how many duplicates were removed.
-
-**Proposal:**
-- Default: print a one-line summary when changes were made (e.g., `Sorted 5 arrays, removed 2 duplicates in project.pbxproj`)
-- `--quiet`: suppress all output (for pre-commit hooks that want silence)
-- `--verbose`: detailed per-section report
-
-**Effort:** Low — track counts during the sort loop, print at end
+Decided against — script should remain silent by default for pre-commit hook usage. `--check` already provides the only feedback needed (exit code).
 
 ---
 
@@ -77,11 +58,9 @@ Test `test_frameworks_preserved` in `tests/test_sort_project.py` confirms PBXFra
 
 ---
 
-### 9. Recursive Directory Search
+### 9. ~~Recursive Directory Search~~ ✅ Completed
 
-**Proposal:** Add `--recursive` flag to find and sort all `project.pbxproj` files under a given directory. Useful for monorepos with multiple Xcode projects.
-
-**Effort:** Low — `pathlib.Path.rglob()` handles recursive search
+Added `--recursive` / `-r` flag using `pathlib.Path.rglob("project.pbxproj")`. Useful for monorepos with multiple Xcode projects.
 
 ---
 
@@ -97,11 +76,11 @@ Python port includes `--version` flag (`1.0.0`).
 |-------|------|--------|
 | 1 | #3 Fix atomic write | ✅ Completed |
 | 2 | #7 Better error for missing files | ✅ Completed |
-| 3 | #4 Expand `%isFile` / `KNOWN_FILES` | Open |
+| 3 | #4 Expand `KNOWN_FILES` | ✅ Completed |
 | 4 | #1 Add test suite | ✅ Completed |
 | 5 | #2 Check mode | ✅ Completed |
 | 6 | #10 Version flag | ✅ Completed |
-| 7 | #6 Feedback on changes | Open |
-| 8 | #5 Stdin/stdout support | Open |
+| 7 | #6 Feedback on changes | ❌ Cancelled |
+| 8 | #5 Stdin/stdout support | ✅ Completed |
 | 9 | #8 PBXFrameworksBuildPhase test | ✅ Covered |
-| 10 | #9 Recursive search | Open |
+| 10 | #9 Recursive search | ✅ Completed |
